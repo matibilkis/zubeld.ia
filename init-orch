@@ -1,0 +1,1533 @@
+#!/usr/bin/env python3
+"""Bootstrap and render orchestration scaffolding from init-orch.md."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import sys
+import textwrap
+from datetime import datetime, timezone
+from pathlib import Path
+
+
+SPEC_MARKERS = ("<!-- init-orch:spec:start -->", "<!-- init-orch:spec:end -->")
+GENERATED_MARKERS = (
+    "<!-- init-orch:generated:start -->",
+    "<!-- init-orch:generated:end -->",
+)
+RECOMMENDATION_MARKERS = (
+    "<!-- init-orch:recommendations:start -->",
+    "<!-- init-orch:recommendations:end -->",
+)
+VALID_TARGETS = {"cursor", "claude"}
+VALID_IMPORT_TYPES = {"mcp", "skillPack", "capabilityPack"}
+SECURITY_WARNING = (
+    "Granting edit, write, delete, shell, network, or external tool access can expose "
+    "code, secrets, and local data to irreversible changes or exfiltration. Use least-"
+    "privilege defaults, require approval for high-impact actions, and review imported "
+    "capabilities before enabling them."
+)
+
+DEFAULT_TOOL_POLICY = {
+    "allow": [
+        "Read(*)",
+        "Glob(*)",
+        "Grep(*)",
+        "WebFetch",
+        "WebSearch",
+    ],
+    "risky": [
+        "Edit(*)",
+        "Write(*)",
+        "Delete(*)",
+        "Bash(*)",
+    ],
+    "deny": [
+        "Bash(rm -rf *)",
+        "Bash(sudo *)",
+        "Edit(.env*)",
+    ],
+    "requiresApproval": [
+        "Delete(*)",
+        "Bash(*)",
+        "Edit(.env*)",
+    ],
+}
+
+DEFAULT_CLAUDE_LOCAL = {
+    "permissions": {
+        "allow": [
+            "Bash(*)",
+            "Edit(*)",
+            "Write(*)",
+            "Read(*)",
+            "Glob(*)",
+            "Grep(*)",
+            "WebFetch(*)",
+            "WebSearch(*)",
+        ],
+        "defaultMode": "acceptEdits",
+    }
+}
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Bootstrap and render orchestration files from init-orch.md.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=textwrap.dedent(
+            """\
+            Examples:
+              init-orch
+              init-orch --init
+              init-orch --cursor
+              init-orch --claude
+              init-orch --all
+              init-orch --dir /path/to/repo --all
+
+            Notes:
+              - With no target flags, init-orch creates init-orch.md if needed.
+              - When render flags are passed and init-orch.md does not exist, it is created first.
+              - Edit init-orch.md, then rerun init-orch with --cursor, --claude, or --all.
+            """
+        ),
+    )
+    parser.add_argument("--dir", default=".", help="Target repository root. Defaults to cwd.")
+    parser.add_argument(
+        "--init",
+        action="store_true",
+        help="Create init-orch.md if missing, without rendering tool-specific files.",
+    )
+    parser.add_argument("--cursor", action="store_true", help="Render Cursor scaffolding.")
+    parser.add_argument("--claude", action="store_true", help="Render Claude scaffolding.")
+    parser.add_argument("--all", action="store_true", help="Render both Cursor and Claude.")
+    parser.add_argument(
+        "legacy_mode",
+        nargs="?",
+        choices=["cursor", "claude", "all"],
+        help="Backwards-compatible positional mode.",
+    )
+    return parser.parse_args()
+
+
+def json_block(markers: tuple[str, str], data: object) -> str:
+    start, end = markers
+    payload = json.dumps(data, indent=2)
+    return f"{start}\n```json\n{payload}\n```\n{end}"
+
+
+def read_text(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
+
+
+def write_text(path: Path, content: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content.rstrip() + "\n", encoding="utf-8")
+
+
+def ensure_line_in_file(path: Path, line: str) -> None:
+    if path.exists():
+        lines = path.read_text(encoding="utf-8").splitlines()
+    else:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lines = []
+
+    if line not in lines:
+        lines.append(line)
+        path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+
+
+def extract_block(text: str, markers: tuple[str, str], label: str) -> str:
+    start, end = markers
+    pattern = re.compile(
+        re.escape(start) + r"\s*```json\s*(.*?)\s*```\s*" + re.escape(end),
+        re.DOTALL,
+    )
+    match = pattern.search(text)
+    if not match:
+        raise ValueError(f"Could not find the {label} JSON block in init-orch.md.")
+    return match.group(1)
+
+
+def replace_block(text: str, markers: tuple[str, str], payload: object) -> str:
+    start, end = markers
+    replacement = f"{start}\n```json\n{json.dumps(payload, indent=2)}\n```\n{end}"
+    pattern = re.compile(
+        re.escape(start) + r"\s*```json\s*.*?\s*```\s*" + re.escape(end),
+        re.DOTALL,
+    )
+    if pattern.search(text):
+        return pattern.sub(replacement, text, count=1)
+    if not text.endswith("\n"):
+        text += "\n"
+    return text + "\n" + replacement + "\n"
+
+
+def sanitize_filename(value: str, fallback: str) -> str:
+    sanitized = re.sub(r"[^A-Za-z0-9._-]+", "-", value.strip()).strip("-")
+    return sanitized or fallback
+
+
+def require_dict(value: object, field_name: str) -> dict:
+    if not isinstance(value, dict):
+        raise ValueError(f"`{field_name}` must be a JSON object.")
+    return value
+
+
+def require_string_list(value: object, field_name: str) -> list[str]:
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise ValueError(f"`{field_name}` must be a JSON array of strings.")
+    return value
+
+
+def normalize_string(value: object, fallback: str) -> str:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    return fallback
+
+
+def dedupe_items(items: list[dict], key: str) -> list[dict]:
+    seen = set()
+    deduped = []
+    for item in items:
+        marker = item.get(key)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        deduped.append(item)
+    return deduped
+
+
+def numbered_lines(items: list[str], fallback: str) -> str:
+    if not items:
+        return f"1. {fallback}"
+    return "\n".join(f"{index}. {item}" for index, item in enumerate(items, start=1))
+
+
+def bullet_lines(items: list[str], fallback: str) -> str:
+    if not items:
+        return f"- {fallback}"
+    return "\n".join(f"- {item}" for item in items)
+
+
+def normalize_role(index: int, raw_role: object) -> dict:
+    if not isinstance(raw_role, dict):
+        raise ValueError(f"`roles[{index}]` must be a JSON object.")
+    role_id = normalize_string(raw_role.get("id"), "")
+    description = normalize_string(raw_role.get("role") or raw_role.get("description"), "")
+    if not role_id or not description:
+        raise ValueError(f"`roles[{index}]` must include `id` and `role`.")
+    responsibilities = require_string_list(
+        raw_role.get("responsibilities", []),
+        f"roles[{index}].responsibilities",
+    )
+    deliverables = require_string_list(
+        raw_role.get("deliverables", []),
+        f"roles[{index}].deliverables",
+    )
+    return {
+        "id": role_id,
+        "role": description,
+        "responsibilities": responsibilities,
+        "deliverables": deliverables,
+    }
+
+
+def normalize_skill(index: int, raw_skill: object, source: str = "local") -> dict:
+    if not isinstance(raw_skill, dict):
+        raise ValueError(f"`skills[{index}]` must be a JSON object.")
+    skill_id = normalize_string(raw_skill.get("id"), "")
+    when = normalize_string(raw_skill.get("when"), "")
+    if not skill_id or not when:
+        raise ValueError(f"`skills[{index}]` must include `id` and `when`.")
+    steps = require_string_list(raw_skill.get("steps", []), f"skills[{index}].steps")
+    outputs = require_string_list(raw_skill.get("outputs", []), f"skills[{index}].outputs")
+    return {
+        "id": skill_id,
+        "when": when,
+        "steps": steps,
+        "outputs": outputs,
+        "source": source,
+    }
+
+
+def normalize_import(index: int, raw_import: object, default_targets: list[str]) -> dict:
+    if not isinstance(raw_import, dict):
+        raise ValueError(f"`imports[{index}]` must be a JSON object.")
+    import_id = normalize_string(raw_import.get("id"), "")
+    import_type = normalize_string(raw_import.get("type"), "")
+    source = normalize_string(raw_import.get("source"), "")
+    if not import_id or not import_type or not source:
+        raise ValueError(f"`imports[{index}]` must include `id`, `type`, and `source`.")
+    if import_type not in VALID_IMPORT_TYPES:
+        raise ValueError(
+            f"`imports[{index}].type` must be one of: "
+            + ", ".join(sorted(VALID_IMPORT_TYPES))
+        )
+
+    targets = require_string_list(
+        raw_import.get("targets", default_targets),
+        f"imports[{index}].targets",
+    )
+    invalid_targets = [target for target in targets if target not in VALID_TARGETS]
+    if invalid_targets:
+        raise ValueError(
+            f"`imports[{index}].targets` contains invalid targets: "
+            + ", ".join(sorted(invalid_targets))
+        )
+
+    transport = require_dict(raw_import.get("transport", {}), f"imports[{index}].transport")
+    trust = require_dict(raw_import.get("trust", {}), f"imports[{index}].trust")
+    provides = require_dict(raw_import.get("provides", {}), f"imports[{index}].provides")
+    provided_skills = provides.get("skills", [])
+    if not isinstance(provided_skills, list):
+        raise ValueError(f"`imports[{index}].provides.skills` must be a JSON array.")
+
+    normalized_skills = []
+    for skill_idx, skill in enumerate(provided_skills, start=1):
+        normalized_skills.append(
+            normalize_skill(
+                skill_idx,
+                skill,
+                source=f"import:{import_id}",
+            )
+        )
+
+    return {
+        "id": import_id,
+        "type": import_type,
+        "source": source,
+        "version": normalize_string(raw_import.get("version"), "unversioned"),
+        "targets": targets,
+        "note": normalize_string(raw_import.get("note"), ""),
+        "trust": {
+            "level": normalize_string(trust.get("level"), "review-required"),
+            "reviewedByHuman": bool(trust.get("reviewedByHuman", False)),
+        },
+        "transport": transport,
+        "provides": {
+            "skills": normalized_skills,
+            "notes": require_string_list(provides.get("notes", []), f"imports[{index}].provides.notes"),
+        },
+    }
+
+
+def normalize_spec(raw_spec: object) -> dict:
+    spec = require_dict(raw_spec, "spec")
+
+    project = require_dict(spec.get("project", {}), "project")
+    summary = normalize_string(
+        project.get("summary"),
+        "Describe what this repository optimizes for.",
+    )
+    style = normalize_string(project.get("style"), "practical")
+    name = normalize_string(project.get("name"), "new-repo")
+    mission = normalize_string(
+        project.get("mission"),
+        "Explain the repository mission and how human and agent work should align.",
+    )
+    success_criteria = require_string_list(
+        project.get("successCriteria", []),
+        "project.successCriteria",
+    )
+    risk_posture = normalize_string(project.get("riskPosture"), "moderate")
+    maturity = normalize_string(project.get("maturity"), "new")
+
+    raw_targets = spec.get("targets", ["cursor", "claude"])
+    targets = require_string_list(raw_targets, "targets")
+    invalid_targets = [target for target in targets if target not in VALID_TARGETS]
+    if invalid_targets:
+        raise ValueError("Invalid targets in `targets`: " + ", ".join(sorted(invalid_targets)))
+
+    roles_raw = spec.get("roles", spec.get("agents", []))
+    if not isinstance(roles_raw, list):
+        raise ValueError("`roles` must be a JSON array.")
+    roles = [normalize_role(index, role) for index, role in enumerate(roles_raw, start=1)]
+
+    rules = require_string_list(spec.get("rules", []), "rules")
+
+    workflow = require_dict(spec.get("workflow", {}), "workflow")
+    workflow_normalized = {
+        "planningTrigger": normalize_string(
+            workflow.get("planningTrigger"),
+            "Plan first for any non-trivial or ambiguous change.",
+        ),
+        "implementationFocus": normalize_string(
+            workflow.get("implementationFocus"),
+            "Prefer the smallest safe change that materially improves the repository.",
+        ),
+        "reviewChecklist": require_string_list(
+            workflow.get("reviewChecklist", []),
+            "workflow.reviewChecklist",
+        ),
+        "escalation": require_string_list(workflow.get("escalation", []), "workflow.escalation"),
+        "stopConditions": require_string_list(
+            workflow.get("stopConditions", []),
+            "workflow.stopConditions",
+        ),
+    }
+
+    handoffs_raw = spec.get("handoffs", [])
+    if not isinstance(handoffs_raw, list):
+        raise ValueError("`handoffs` must be a JSON array.")
+    handoffs = []
+    for index, handoff in enumerate(handoffs_raw, start=1):
+        if not isinstance(handoff, dict):
+            raise ValueError(f"`handoffs[{index}]` must be a JSON object.")
+        handoffs.append(
+            {
+                "from": normalize_string(handoff.get("from"), ""),
+                "to": normalize_string(handoff.get("to"), ""),
+                "expects": require_string_list(handoff.get("expects", []), f"handoffs[{index}].expects"),
+            }
+        )
+        if not handoffs[-1]["from"] or not handoffs[-1]["to"]:
+            raise ValueError(f"`handoffs[{index}]` must include `from` and `to`.")
+
+    verification_raw = spec.get("verification", [])
+    if not isinstance(verification_raw, list):
+        raise ValueError("`verification` must be a JSON array.")
+    verification = []
+    for index, item in enumerate(verification_raw, start=1):
+        if not isinstance(item, dict):
+            raise ValueError(f"`verification[{index}]` must be a JSON object.")
+        change_type = normalize_string(item.get("changeType"), "")
+        if not change_type:
+            raise ValueError(f"`verification[{index}]` must include `changeType`.")
+        verification.append(
+            {
+                "changeType": change_type,
+                "required": require_string_list(item.get("required", []), f"verification[{index}].required"),
+            }
+        )
+
+    skills_raw = spec.get("skills", [])
+    if not isinstance(skills_raw, list):
+        raise ValueError("`skills` must be a JSON array.")
+    skills = [
+        normalize_skill(index, skill, source="local")
+        for index, skill in enumerate(skills_raw, start=1)
+    ]
+
+    tool_policy = require_dict(spec.get("toolPolicy", DEFAULT_TOOL_POLICY), "toolPolicy")
+    tool_policy_normalized = {
+        "allow": require_string_list(tool_policy.get("allow", []), "toolPolicy.allow"),
+        "risky": require_string_list(tool_policy.get("risky", []), "toolPolicy.risky"),
+        "deny": require_string_list(tool_policy.get("deny", []), "toolPolicy.deny"),
+        "requiresApproval": require_string_list(
+            tool_policy.get("requiresApproval", []),
+            "toolPolicy.requiresApproval",
+        ),
+    }
+
+    evaluation = require_dict(spec.get("evaluation", {}), "evaluation")
+    evaluation_normalized = {
+        "cadence": normalize_string(evaluation.get("cadence"), "After meaningful changes or retrospectives."),
+        "signals": require_string_list(evaluation.get("signals", []), "evaluation.signals"),
+        "goals": require_string_list(evaluation.get("goals", []), "evaluation.goals"),
+        "recommendationFormat": normalize_string(
+            evaluation.get("recommendationFormat"),
+            "Short actionable recommendations that improve human-agent collaboration.",
+        ),
+    }
+
+    imports_raw = spec.get("imports", [])
+    if not isinstance(imports_raw, list):
+        raise ValueError("`imports` must be a JSON array.")
+    imports = [
+        normalize_import(index, item, targets)
+        for index, item in enumerate(imports_raw, start=1)
+    ]
+
+    target_overrides = require_dict(spec.get("targetOverrides", {}), "targetOverrides")
+    cursor_overrides = require_dict(target_overrides.get("cursor", {}), "targetOverrides.cursor")
+    claude_overrides = require_dict(target_overrides.get("claude", {}), "targetOverrides.claude")
+
+    claude = require_dict(spec.get("claude", {}), "claude")
+    settings_local_example = require_dict(
+        claude.get("settingsLocalExample", DEFAULT_CLAUDE_LOCAL),
+        "claude.settingsLocalExample",
+    )
+
+    import_skills = []
+    for item in imports:
+        import_skills.extend(item["provides"]["skills"])
+    skills = dedupe_items(skills + import_skills, "id")
+
+    mcp_servers = []
+    for item in imports:
+        if item["type"] != "mcp":
+            continue
+        transport = item["transport"]
+        server_entry = {
+            "id": item["id"],
+            "source": item["source"],
+            "version": item["version"],
+            "targets": item["targets"],
+            "note": item["note"],
+            "trust": item["trust"],
+        }
+        transport_type = normalize_string(transport.get("type"), "")
+        if transport_type == "stdio":
+            server_entry["transport"] = {
+                "type": "stdio",
+                "command": normalize_string(transport.get("command"), ""),
+                "args": require_string_list(transport.get("args", []), f"imports[{item['id']}].transport.args"),
+                "env": require_dict(transport.get("env", {}), f"imports[{item['id']}].transport.env"),
+            }
+            if not server_entry["transport"]["command"]:
+                raise ValueError(
+                    f"MCP import `{item['id']}` with stdio transport must include `transport.command`."
+                )
+        elif transport_type == "http":
+            server_entry["transport"] = {
+                "type": "http",
+                "url": normalize_string(transport.get("url"), ""),
+            }
+            if not server_entry["transport"]["url"]:
+                raise ValueError(
+                    f"MCP import `{item['id']}` with http transport must include `transport.url`."
+                )
+        else:
+            server_entry["transport"] = {"type": "reference"}
+        mcp_servers.append(server_entry)
+
+    return {
+        "version": int(spec.get("version", 1)),
+        "project": {
+            "name": name,
+            "summary": summary,
+            "style": style,
+            "mission": mission,
+            "successCriteria": success_criteria,
+            "riskPosture": risk_posture,
+            "maturity": maturity,
+        },
+        "targets": targets,
+        "roles": roles,
+        "rules": rules,
+        "workflow": workflow_normalized,
+        "handoffs": handoffs,
+        "verification": verification,
+        "skills": skills,
+        "toolPolicy": tool_policy_normalized,
+        "evaluation": evaluation_normalized,
+        "imports": imports,
+        "mcpServers": mcp_servers,
+        "targetOverrides": {
+            "cursor": cursor_overrides,
+            "claude": claude_overrides,
+        },
+        "claude": {
+            "settingsLocalExample": settings_local_example,
+        },
+    }
+
+
+def default_blueprint(repo_name: str) -> str:
+    spec = {
+        "version": 2,
+        "project": {
+            "name": repo_name,
+            "summary": "Describe what this repository does and what a successful change should optimize for.",
+            "mission": "Keep human and agent work aligned around practical, reviewable improvements.",
+            "style": "practical",
+            "successCriteria": [
+                "Ship small safe changes quickly.",
+                "Keep guidance easy for humans to update.",
+            ],
+            "riskPosture": "moderate",
+            "maturity": "new",
+        },
+        "targets": ["cursor", "claude"],
+        "roles": [
+            {
+                "id": "planner",
+                "role": "Plan non-trivial changes before implementation.",
+                "responsibilities": [
+                    "Clarify the goal and constraints.",
+                    "Propose the smallest safe path forward.",
+                ],
+                "deliverables": ["Short implementation plan"],
+            },
+            {
+                "id": "implementer",
+                "role": "Make focused code changes and verify the result.",
+                "responsibilities": [
+                    "Implement the agreed change.",
+                    "Run the most relevant checks.",
+                ],
+                "deliverables": ["Code changes", "Verification notes"],
+            },
+            {
+                "id": "reviewer",
+                "role": "Review diffs for bugs, regressions, and missing checks.",
+                "responsibilities": [
+                    "Look for correctness and safety issues.",
+                    "Call out missing tests or risky assumptions.",
+                ],
+                "deliverables": ["Review findings or approval"],
+            },
+            {
+                "id": "evaluator",
+                "role": "Assess how the human-agent workflow is performing over time.",
+                "responsibilities": [
+                    "Identify friction in prompts, permissions, and handoffs.",
+                    "Recommend changes to the orchestration design.",
+                ],
+                "deliverables": ["Recommendations for init-orch.md"],
+            },
+        ],
+        "rules": [
+            "Ask before destructive or irreversible actions.",
+            "Prefer focused verification after changes.",
+            "Do not edit secrets or production credentials.",
+        ],
+        "workflow": {
+            "planningTrigger": "Plan first for non-trivial or ambiguous changes.",
+            "implementationFocus": "Prefer the smallest safe change that improves the repository.",
+            "reviewChecklist": [
+                "Confirm behavior changed as intended.",
+                "Check for missing verification.",
+            ],
+            "escalation": [
+                "Escalate when requirements are ambiguous.",
+                "Escalate before destructive actions or production-impacting changes.",
+            ],
+            "stopConditions": [
+                "Stop when missing credentials or required access blocks progress.",
+                "Stop when the requested action would be unsafe without human review.",
+            ],
+        },
+        "handoffs": [
+            {
+                "from": "planner",
+                "to": "implementer",
+                "expects": ["Goal summary", "Constraints", "Proposed plan"],
+            },
+            {
+                "from": "implementer",
+                "to": "reviewer",
+                "expects": ["Diff summary", "Verification notes", "Known risks"],
+            },
+        ],
+        "verification": [
+            {
+                "changeType": "code",
+                "required": ["Run focused tests or explain why none were available."],
+            },
+            {
+                "changeType": "config",
+                "required": ["Review generated files before enabling broad permissions."],
+            },
+        ],
+        "skills": [
+            {
+                "id": "change-plan",
+                "when": "Use for multi-step work that benefits from a short implementation plan.",
+                "steps": [
+                    "Summarize the goal and important constraints.",
+                    "Outline the smallest safe change.",
+                    "List the checks needed before finishing.",
+                ],
+                "outputs": ["Plan", "Verification checklist"],
+            }
+        ],
+        "toolPolicy": DEFAULT_TOOL_POLICY,
+        "evaluation": {
+            "cadence": "Review after meaningful project changes or when the workflow feels brittle.",
+            "signals": [
+                "Humans repeatedly have to restate context.",
+                "Agents stall because permissions are too weak or too broad.",
+                "Reviews catch recurring classes of mistakes.",
+            ],
+            "goals": [
+                "Reduce human babysitting.",
+                "Improve safety without making normal work painful.",
+            ],
+            "recommendationFormat": "Short actionable recommendations grouped by risk and ergonomics.",
+        },
+        "imports": [
+            {
+                "id": "paperclip",
+                "type": "capabilityPack",
+                "source": "https://paperclip.ing/",
+                "version": "reference",
+                "targets": ["cursor", "claude"],
+                "note": "Track external orchestrator ideas or future adapters here.",
+                "trust": {"level": "review-required", "reviewedByHuman": False},
+                "provides": {
+                    "notes": ["Review governance and ticketing patterns before adopting."],
+                    "skills": [],
+                },
+            },
+            {
+                "id": "example-mcp",
+                "type": "mcp",
+                "source": "npm:example-mcp-server",
+                "version": "latest",
+                "targets": ["cursor"],
+                "note": "Replace with a real MCP server when needed.",
+                "trust": {"level": "review-required", "reviewedByHuman": False},
+                "transport": {
+                    "type": "stdio",
+                    "command": "npx",
+                    "args": ["-y", "example-mcp-server"],
+                    "env": {},
+                },
+                "provides": {"notes": ["Review what tools the MCP exposes."], "skills": []},
+            },
+        ],
+        "targetOverrides": {
+            "cursor": {
+                "alwaysApplyRules": ["core", "orchestrator-policy", "workflow", "evaluation"]
+            },
+            "claude": {
+                "notes": ["Keep `.claude/settings.local.json` uncommitted."],
+            },
+        },
+        "claude": {
+            "settingsLocalExample": DEFAULT_CLAUDE_LOCAL,
+        },
+    }
+    generated = {
+        "version": 2,
+        "lastRenderedAt": None,
+        "renderedTargets": [],
+        "generatedFiles": [],
+        "resolvedImports": [],
+    }
+    recommendations = {
+        "version": 1,
+        "summary": "Render the targets to populate recommendations.",
+        "items": [],
+    }
+    return textwrap.dedent(
+        f"""\
+        # Init Orch
+
+        `init-orch.md` is the only high-level file you should edit directly. The generated files under `.cursor/`, `.claude/`, `AGENTS.md`, and `orch/` are derived outputs.
+
+        > Security warning: {SECURITY_WARNING}
+
+        Edit the JSON block below to describe the orchestration structure you want for this repository.
+
+        {json_block(SPEC_MARKERS, spec)}
+
+        ## Workflow
+
+        1. Fill in the spec block above.
+        2. Run `init-orch --cursor`, `init-orch --claude`, or `init-orch --all`.
+        3. Re-run the command whenever you change the orchestration design.
+        4. Review the generated recommendations block and decide which changes belong in the spec.
+
+        The generator will only rewrite the metadata and recommendations blocks below.
+
+        {json_block(GENERATED_MARKERS, generated)}
+
+        {json_block(RECOMMENDATION_MARKERS, recommendations)}
+        """
+    ).rstrip() + "\n"
+
+
+def bootstrap_blueprint(target_dir: Path) -> tuple[Path, bool]:
+    blueprint_path = target_dir / "init-orch.md"
+    if blueprint_path.exists():
+        return blueprint_path, False
+    write_text(blueprint_path, default_blueprint(target_dir.name or "new-repo"))
+    return blueprint_path, True
+
+
+def generate_recommendations(spec: dict) -> dict:
+    items = []
+    tool_policy = spec["toolPolicy"]
+    if tool_policy["risky"] and not tool_policy["requiresApproval"]:
+        items.append(
+            {
+                "category": "security",
+                "title": "Add approval gates for risky permissions",
+                "recommendation": "Populate `toolPolicy.requiresApproval` for shell, delete, or broad edit access.",
+                "rationale": "Risky capabilities are enabled without an explicit approval boundary.",
+            }
+        )
+
+    if any(entry == "Bash(*)" for entry in tool_policy["risky"]) and spec["project"]["riskPosture"] in {"high", "strict"}:
+        items.append(
+            {
+                "category": "security",
+                "title": "Tighten broad shell access",
+                "recommendation": "Replace `Bash(*)` with narrower patterns or require approval before shell execution.",
+                "rationale": "A high-risk posture and broad shell access work against each other.",
+            }
+        )
+
+    if not spec["verification"]:
+        items.append(
+            {
+                "category": "quality",
+                "title": "Add verification requirements",
+                "recommendation": "Define `verification` entries by change type so agents know what checks are required.",
+                "rationale": "Without change-specific verification, reviews depend too heavily on ad hoc judgment.",
+            }
+        )
+
+    if not spec["workflow"]["stopConditions"]:
+        items.append(
+            {
+                "category": "workflow",
+                "title": "Add explicit stop conditions",
+                "recommendation": "Define when agents should stop and ask for help instead of pushing forward.",
+                "rationale": "Stop conditions reduce unsafe improvisation and wasted effort.",
+            }
+        )
+
+    if not any(role["id"] == "evaluator" for role in spec["roles"]):
+        items.append(
+            {
+                "category": "iteration",
+                "title": "Add an evaluator role",
+                "recommendation": "Introduce a role that reviews overall human-agent collaboration and recommends improvements.",
+                "rationale": "A dedicated evaluator helps the orchestration evolve as the project changes.",
+            }
+        )
+
+    for item in spec["imports"]:
+        if item["trust"]["level"] == "review-required" or not item["trust"]["reviewedByHuman"]:
+            items.append(
+                {
+                    "category": "imports",
+                    "title": f"Review imported capability `{item['id']}`",
+                    "recommendation": "Confirm trust, scope, and target mappings before relying on this import in production work.",
+                    "rationale": f"Imported source `{item['source']}` is not marked as fully reviewed.",
+                }
+            )
+        if item["version"] == "unversioned" or item["version"] == "latest":
+            items.append(
+                {
+                    "category": "imports",
+                    "title": f"Pin a revision for `{item['id']}`",
+                    "recommendation": "Use a concrete version or revision when possible so your orchestration stays reproducible.",
+                    "rationale": "Floating imports can drift and change behavior unexpectedly.",
+                }
+            )
+
+    summary = "No major recommendations." if not items else f"{len(items)} recommendation(s) generated."
+    return {
+        "version": 1,
+        "summary": summary,
+        "items": items,
+    }
+
+
+def render_agents_file(spec: dict, recommendations: dict) -> str:
+    project = spec["project"]
+    targets = ", ".join(spec["targets"]) if spec["targets"] else "none"
+    roles = "\n".join(
+        f"- `{role['id']}`: {role['role']}" for role in spec["roles"]
+    ) or "- Add at least one role in `init-orch.md`."
+    responsibilities = "\n".join(
+        f"- `{role['id']}` responsibilities: "
+        + (", ".join(role["responsibilities"]) or "Add responsibilities in `init-orch.md`.")
+        for role in spec["roles"]
+    ) or "- Add role responsibilities in `init-orch.md`."
+    skills = "\n".join(
+        f"- `{skill['id']}`: {skill['when']} ({skill['source']})" for skill in spec["skills"]
+    ) or "- Add a skill entry in `init-orch.md` when you want reusable workflows."
+    success = bullet_lines(project["successCriteria"], "Add success criteria in `init-orch.md`.")
+    rules = bullet_lines(spec["rules"], "Add repository-specific rules in `init-orch.md`.")
+    review = bullet_lines(
+        spec["workflow"]["reviewChecklist"],
+        "Add a review checklist in `init-orch.md`.",
+    )
+    verification = "\n".join(
+        f"- `{item['changeType']}`: "
+        + (", ".join(item["required"]) or "Add required checks in `init-orch.md`.")
+        for item in spec["verification"]
+    ) or "- Add verification requirements in `init-orch.md`."
+    imports = "\n".join(
+        f"- `{item['id']}` (`{item['type']}`): {item['source']}" for item in spec["imports"]
+    ) or "- No imports declared."
+    recommendation_titles = "\n".join(
+        f"- {item['title']}" for item in recommendations["items"][:5]
+    ) or "- No outstanding recommendations."
+
+    return textwrap.dedent(
+        f"""\
+        # Agent Operating Guide
+
+        Source of truth: `init-orch.md`. Re-run `init-orch` after changing the orchestration design.
+
+        > Security warning: {SECURITY_WARNING}
+
+        ## Project
+
+        - Name: {project["name"]}
+        - Style: {project["style"]}
+        - Targets: {targets}
+        - Risk posture: {project["riskPosture"]}
+        - Maturity: {project["maturity"]}
+
+        {project["summary"]}
+
+        ### Mission
+
+        {project["mission"]}
+
+        ### Success Criteria
+
+        {success}
+
+        ## Roles
+
+        {roles}
+
+        ## Role Responsibilities
+
+        {responsibilities}
+
+        ## Working Rules
+
+        {rules}
+
+        ## Workflow
+
+        - Planning trigger: {spec["workflow"]["planningTrigger"]}
+        - Implementation focus: {spec["workflow"]["implementationFocus"]}
+
+        ### Review Checklist
+
+        {review}
+
+        ### Handoffs
+
+        {bullet_lines([f"{handoff['from']} -> {handoff['to']}: {', '.join(handoff['expects'])}" for handoff in spec["handoffs"]], "Add handoffs in `init-orch.md`.")}
+
+        ### Verification
+
+        {verification}
+
+        ## Tool Policy
+
+        - Allow: {", ".join(spec["toolPolicy"]["allow"]) or "none"}
+        - Risky: {", ".join(spec["toolPolicy"]["risky"]) or "none"}
+        - Requires approval: {", ".join(spec["toolPolicy"]["requiresApproval"]) or "none"}
+        - Deny: {", ".join(spec["toolPolicy"]["deny"]) or "none"}
+
+        ## Imported Capabilities
+
+        {imports}
+
+        ## Skills
+
+        {skills}
+
+        ## Evaluation Loop
+
+        - Cadence: {spec["evaluation"]["cadence"]}
+        - Recommendation format: {spec["evaluation"]["recommendationFormat"]}
+
+        ### Current Recommendations
+
+        {recommendation_titles}
+        """
+    )
+
+
+def render_policy_file(spec: dict) -> str:
+    payload = {
+        "version": spec["version"],
+        "description": "Generated from init-orch.md. Do not edit directly.",
+        "project": spec["project"],
+        "targets": spec["targets"],
+        "roles": spec["roles"],
+        "rules": spec["rules"],
+        "workflow": spec["workflow"],
+        "handoffs": spec["handoffs"],
+        "verification": spec["verification"],
+        "skills": spec["skills"],
+        "toolPolicy": spec["toolPolicy"],
+        "evaluation": spec["evaluation"],
+        "imports": spec["imports"],
+        "claude": {
+            "settings": {
+                "permissions": {
+                    "allow": spec["toolPolicy"]["allow"],
+                    "deny": spec["toolPolicy"]["deny"],
+                }
+            },
+            "settingsLocalExample": spec["claude"]["settingsLocalExample"],
+        },
+        "cursor": {
+            "ruleFile": ".cursor/rules/orchestrator-policy.mdc",
+            "alwaysApply": True,
+        },
+    }
+    return json.dumps(payload, indent=2)
+
+
+def render_cursor_core_rule(spec: dict) -> str:
+    role_lines = "\n".join(
+        f"- `{role['id']}`: {role['role']}" for role in spec["roles"]
+    ) or "- Add roles in `init-orch.md`."
+    success = bullet_lines(
+        spec["project"]["successCriteria"],
+        "Add success criteria in `init-orch.md`.",
+    )
+    return textwrap.dedent(
+        f"""\
+        ---
+        description: Core orchestration guidance generated from init-orch.md
+        alwaysApply: true
+        ---
+
+        # Core Project Guidance
+
+        - Project: {spec["project"]["name"]}
+        - Style: {spec["project"]["style"]}
+        - Risk posture: {spec["project"]["riskPosture"]}
+
+        ## Summary
+
+        {spec["project"]["summary"]}
+
+        ## Mission
+
+        {spec["project"]["mission"]}
+
+        ## Success Criteria
+
+        {success}
+
+        ## Roles
+
+        {role_lines}
+        """
+    )
+
+
+def render_cursor_policy_rule(spec: dict) -> str:
+    allow = bullet_lines(spec["toolPolicy"]["allow"], "Add allowed tool patterns in `init-orch.md`.")
+    risky = bullet_lines(spec["toolPolicy"]["risky"], "Add risky tool patterns in `init-orch.md`.")
+    approval = bullet_lines(
+        spec["toolPolicy"]["requiresApproval"],
+        "Add approval-gated tool patterns in `init-orch.md`.",
+    )
+    deny = bullet_lines(spec["toolPolicy"]["deny"], "Add denied tool patterns in `init-orch.md`.")
+    return textwrap.dedent(
+        f"""\
+        ---
+        description: Permission intent mirror generated from init-orch.md
+        alwaysApply: true
+        ---
+
+        # Orchestrator Policy Intent
+
+        Source of truth: `init-orch.md` and generated `orch/permissions.policy.json`.
+
+        > Security warning: {SECURITY_WARNING}
+
+        ## Allowed Tool Patterns
+
+        {allow}
+
+        ## Risky Tool Patterns
+
+        {risky}
+
+        ## Requires Approval
+
+        {approval}
+
+        ## Denied Tool Patterns
+
+        {deny}
+        """
+    )
+
+
+def render_cursor_workflow_rule(spec: dict) -> str:
+    return textwrap.dedent(
+        f"""\
+        ---
+        description: Workflow expectations generated from init-orch.md
+        alwaysApply: true
+        ---
+
+        # Workflow Expectations
+
+        - Plan first when: {spec["workflow"]["planningTrigger"]}
+        - Implementation focus: {spec["workflow"]["implementationFocus"]}
+
+        ## Review Checklist
+
+        {bullet_lines(spec["workflow"]["reviewChecklist"], "Add workflow.reviewChecklist in `init-orch.md`.")}
+
+        ## Escalation
+
+        {bullet_lines(spec["workflow"]["escalation"], "Add escalation guidance in `init-orch.md`.")}
+
+        ## Stop Conditions
+
+        {bullet_lines(spec["workflow"]["stopConditions"], "Add stop conditions in `init-orch.md`.")}
+        """
+    )
+
+
+def render_cursor_evaluation_rule(spec: dict, recommendations: dict) -> str:
+    recommendation_titles = bullet_lines(
+        [item["title"] for item in recommendations["items"]],
+        "No current recommendations.",
+    )
+    return textwrap.dedent(
+        f"""\
+        ---
+        description: Evaluation and iteration guidance generated from init-orch.md
+        alwaysApply: true
+        ---
+
+        # Evaluation Loop
+
+        - Cadence: {spec["evaluation"]["cadence"]}
+        - Recommendation format: {spec["evaluation"]["recommendationFormat"]}
+
+        ## Signals To Watch
+
+        {bullet_lines(spec["evaluation"]["signals"], "Add evaluation.signals in `init-orch.md`.")}
+
+        ## Goals
+
+        {bullet_lines(spec["evaluation"]["goals"], "Add evaluation.goals in `init-orch.md`.")}
+
+        ## Current Recommendations
+
+        {recommendation_titles}
+        """
+    )
+
+
+def render_cursor_skill(skill: dict) -> str:
+    return textwrap.dedent(
+        f"""\
+        ---
+        name: {skill["id"]}
+        description: Generated from init-orch.md ({skill["source"]})
+        ---
+
+        # {skill["id"]}
+
+        ## When To Use
+
+        {skill["when"]}
+
+        ## Instructions
+
+        {numbered_lines(skill["steps"], "Add concrete steps in `init-orch.md`.")}
+
+        ## Expected Outputs
+
+        {bullet_lines(skill["outputs"], "Add output expectations in `init-orch.md`.")}
+        """
+    )
+
+
+def render_claude_rule(spec: dict) -> str:
+    return textwrap.dedent(
+        f"""\
+        # Claude Orchestration Guide
+
+        Generated from `init-orch.md`.
+
+        > Security warning: {SECURITY_WARNING}
+
+        ## Project Summary
+
+        {spec["project"]["summary"]}
+
+        ## Mission
+
+        {spec["project"]["mission"]}
+
+        ## Working Rules
+
+        {bullet_lines(spec["rules"], "Add repository rules in `init-orch.md`.")}
+
+        ## Workflow
+
+        - Planning trigger: {spec["workflow"]["planningTrigger"]}
+        - Implementation focus: {spec["workflow"]["implementationFocus"]}
+        """
+    )
+
+
+def render_claude_security_rule(spec: dict) -> str:
+    return textwrap.dedent(
+        f"""\
+        # Security And Permissions
+
+        Generated from `init-orch.md`.
+
+        {SECURITY_WARNING}
+
+        ## Allow
+
+        {bullet_lines(spec["toolPolicy"]["allow"], "Add allowed tool patterns in `init-orch.md`.")}
+
+        ## Risky
+
+        {bullet_lines(spec["toolPolicy"]["risky"], "Add risky tool patterns in `init-orch.md`.")}
+
+        ## Requires Approval
+
+        {bullet_lines(spec["toolPolicy"]["requiresApproval"], "Add approval requirements in `init-orch.md`.")}
+
+        ## Deny
+
+        {bullet_lines(spec["toolPolicy"]["deny"], "Add denied tool patterns in `init-orch.md`.")}
+        """
+    )
+
+
+def render_claude_evaluation_rule(spec: dict, recommendations: dict) -> str:
+    return textwrap.dedent(
+        f"""\
+        # Evaluation Guide
+
+        Generated from `init-orch.md`.
+
+        ## Cadence
+
+        {spec["evaluation"]["cadence"]}
+
+        ## Signals
+
+        {bullet_lines(spec["evaluation"]["signals"], "Add evaluation signals in `init-orch.md`.")}
+
+        ## Goals
+
+        {bullet_lines(spec["evaluation"]["goals"], "Add evaluation goals in `init-orch.md`.")}
+
+        ## Current Recommendations
+
+        {bullet_lines([item["title"] for item in recommendations["items"]], "No current recommendations.")}
+        """
+    )
+
+
+def render_claude_role(role: dict, spec: dict) -> str:
+    return textwrap.dedent(
+        f"""\
+        # {role["id"]}
+
+        Generated from `init-orch.md`.
+
+        ## Role
+
+        {role["role"]}
+
+        ## Responsibilities
+
+        {bullet_lines(role["responsibilities"], "Add responsibilities in `init-orch.md`.")}
+
+        ## Deliverables
+
+        {bullet_lines(role["deliverables"], "Add deliverables in `init-orch.md`.")}
+
+        ## Project Context
+
+        {spec["project"]["mission"]}
+        """
+    )
+
+
+def render_claude_skill(skill: dict) -> str:
+    return textwrap.dedent(
+        f"""\
+        # {skill["id"]}
+
+        Generated from `init-orch.md` ({skill["source"]}).
+
+        ## When To Use
+
+        {skill["when"]}
+
+        ## Steps
+
+        {numbered_lines(skill["steps"], "Add concrete steps in `init-orch.md`.")}
+
+        ## Expected Outputs
+
+        {bullet_lines(skill["outputs"], "Add output expectations in `init-orch.md`.")}
+        """
+    )
+
+
+def render_import_lock(spec: dict) -> str:
+    payload = {
+        "version": 1,
+        "imports": spec["imports"],
+        "mcpServers": spec["mcpServers"],
+    }
+    return json.dumps(payload, indent=2)
+
+
+def render_evaluation_plan(spec: dict, recommendations: dict) -> str:
+    payload = {
+        "version": 1,
+        "cadence": spec["evaluation"]["cadence"],
+        "signals": spec["evaluation"]["signals"],
+        "goals": spec["evaluation"]["goals"],
+        "recommendations": recommendations["items"],
+    }
+    return json.dumps(payload, indent=2)
+
+
+def build_cursor_mcp_manifest(spec: dict) -> dict:
+    servers = {}
+    for server in spec["mcpServers"]:
+        if "cursor" not in server["targets"]:
+            continue
+        transport = server["transport"]
+        if transport["type"] == "stdio":
+            servers[server["id"]] = {
+                "command": transport["command"],
+                "args": transport["args"],
+                "env": transport["env"],
+            }
+        elif transport["type"] == "http":
+            servers[server["id"]] = {
+                "url": transport["url"],
+            }
+    return {"mcpServers": servers}
+
+
+def render_shared_files(target_dir: Path, spec: dict, recommendations: dict) -> list[Path]:
+    generated = []
+    agents_path = target_dir / "AGENTS.md"
+    policy_path = target_dir / "orch" / "permissions.policy.json"
+    imports_path = target_dir / "orch" / "imports.lock.json"
+    evaluation_path = target_dir / "orch" / "evaluation.plan.json"
+    write_text(agents_path, render_agents_file(spec, recommendations))
+    write_text(policy_path, render_policy_file(spec))
+    write_text(imports_path, render_import_lock(spec))
+    write_text(evaluation_path, render_evaluation_plan(spec, recommendations))
+    generated.extend([agents_path, policy_path, imports_path, evaluation_path])
+    return generated
+
+
+def render_cursor_files(target_dir: Path, spec: dict, recommendations: dict) -> list[Path]:
+    generated = []
+    rules_dir = target_dir / ".cursor" / "rules"
+    skills_dir = target_dir / ".cursor" / "skills"
+    imports_dir = target_dir / ".cursor" / "imports"
+    rules_dir.mkdir(parents=True, exist_ok=True)
+    skills_dir.mkdir(parents=True, exist_ok=True)
+    imports_dir.mkdir(parents=True, exist_ok=True)
+
+    rule_paths = {
+        "core": rules_dir / "core.mdc",
+        "policy": rules_dir / "orchestrator-policy.mdc",
+        "workflow": rules_dir / "workflow.mdc",
+        "evaluation": rules_dir / "evaluation.mdc",
+    }
+    write_text(rule_paths["core"], render_cursor_core_rule(spec))
+    write_text(rule_paths["policy"], render_cursor_policy_rule(spec))
+    write_text(rule_paths["workflow"], render_cursor_workflow_rule(spec))
+    write_text(rule_paths["evaluation"], render_cursor_evaluation_rule(spec, recommendations))
+    generated.extend(rule_paths.values())
+
+    manifest_path = imports_dir / "manifest.json"
+    write_text(
+        manifest_path,
+        json.dumps(
+            {
+                "imports": [item for item in spec["imports"] if "cursor" in item["targets"]],
+                "securityWarning": SECURITY_WARNING,
+            },
+            indent=2,
+        ),
+    )
+    generated.append(manifest_path)
+
+    cursor_mcp_servers = build_cursor_mcp_manifest(spec)
+    if cursor_mcp_servers["mcpServers"]:
+        mcp_path = target_dir / ".cursor" / "mcp.json"
+        write_text(mcp_path, json.dumps(cursor_mcp_servers, indent=2))
+        generated.append(mcp_path)
+
+    if spec["skills"]:
+        for skill in spec["skills"]:
+            skill_dir = skills_dir / sanitize_filename(skill["id"], "skill")
+            skill_path = skill_dir / "SKILL.md"
+            write_text(skill_path, render_cursor_skill(skill))
+            generated.append(skill_path)
+    else:
+        gitkeep = skills_dir / ".gitkeep"
+        gitkeep.touch(exist_ok=True)
+        generated.append(gitkeep)
+    return generated
+
+
+def render_claude_files(target_dir: Path, spec: dict, recommendations: dict) -> list[Path]:
+    generated = []
+    claude_dir = target_dir / ".claude"
+    rules_dir = claude_dir / "rules"
+    agents_dir = claude_dir / "agents"
+    skills_dir = claude_dir / "skills"
+    imports_dir = claude_dir / "imports"
+    rules_dir.mkdir(parents=True, exist_ok=True)
+    agents_dir.mkdir(parents=True, exist_ok=True)
+    skills_dir.mkdir(parents=True, exist_ok=True)
+    imports_dir.mkdir(parents=True, exist_ok=True)
+
+    settings_path = claude_dir / "settings.json"
+    local_settings_path = claude_dir / "settings.local.json.example"
+    orchestration_path = rules_dir / "orchestration.md"
+    security_path = rules_dir / "security.md"
+    evaluation_path = rules_dir / "evaluation.md"
+    imports_path = imports_dir / "manifest.json"
+
+    write_text(
+        settings_path,
+        json.dumps(
+            {
+                "permissions": {
+                    "allow": spec["toolPolicy"]["allow"],
+                    "deny": spec["toolPolicy"]["deny"],
+                }
+            },
+            indent=2,
+        ),
+    )
+    write_text(local_settings_path, json.dumps(spec["claude"]["settingsLocalExample"], indent=2))
+    write_text(orchestration_path, render_claude_rule(spec))
+    write_text(security_path, render_claude_security_rule(spec))
+    write_text(evaluation_path, render_claude_evaluation_rule(spec, recommendations))
+    write_text(
+        imports_path,
+        json.dumps(
+            {
+                "imports": [item for item in spec["imports"] if "claude" in item["targets"]],
+                "securityWarning": SECURITY_WARNING,
+            },
+            indent=2,
+        ),
+    )
+    generated.extend(
+        [
+            settings_path,
+            local_settings_path,
+            orchestration_path,
+            security_path,
+            evaluation_path,
+            imports_path,
+        ]
+    )
+
+    if spec["roles"]:
+        for role in spec["roles"]:
+            role_path = agents_dir / f"{sanitize_filename(role['id'], 'role')}.md"
+            write_text(role_path, render_claude_role(role, spec))
+            generated.append(role_path)
+    else:
+        gitkeep = agents_dir / ".gitkeep"
+        gitkeep.touch(exist_ok=True)
+        generated.append(gitkeep)
+
+    if spec["skills"]:
+        for skill in spec["skills"]:
+            skill_path = skills_dir / f"{sanitize_filename(skill['id'], 'skill')}.md"
+            write_text(skill_path, render_claude_skill(skill))
+            generated.append(skill_path)
+    else:
+        gitkeep = skills_dir / ".gitkeep"
+        gitkeep.touch(exist_ok=True)
+        generated.append(gitkeep)
+
+    ensure_line_in_file(target_dir / ".gitignore", ".claude/settings.local.json")
+    return generated
+
+
+def render_targets(target_dir: Path, selected_targets: list[str], blueprint_path: Path) -> None:
+    blueprint_text = read_text(blueprint_path)
+    try:
+        raw_spec = json.loads(extract_block(blueprint_text, SPEC_MARKERS, "spec"))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON in the spec block: {exc}") from exc
+
+    spec = normalize_spec(raw_spec)
+    recommendations = generate_recommendations(spec)
+    generated_paths = render_shared_files(target_dir, spec, recommendations)
+
+    if "cursor" in selected_targets:
+        generated_paths.extend(render_cursor_files(target_dir, spec, recommendations))
+    if "claude" in selected_targets:
+        generated_paths.extend(render_claude_files(target_dir, spec, recommendations))
+
+    metadata = {
+        "version": 2,
+        "lastRenderedAt": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+        "renderedTargets": selected_targets,
+        "generatedFiles": sorted(str(path.relative_to(target_dir)) for path in generated_paths),
+        "resolvedImports": [
+            {
+                "id": item["id"],
+                "type": item["type"],
+                "targets": item["targets"],
+                "version": item["version"],
+            }
+            for item in spec["imports"]
+        ],
+    }
+    updated_blueprint = replace_block(blueprint_text, GENERATED_MARKERS, metadata)
+    updated_blueprint = replace_block(updated_blueprint, RECOMMENDATION_MARKERS, recommendations)
+    write_text(blueprint_path, updated_blueprint)
+
+
+def collect_selected_targets(args: argparse.Namespace) -> list[str]:
+    selected = set()
+    if args.all or args.legacy_mode == "all":
+        selected.update(VALID_TARGETS)
+    if args.cursor or args.legacy_mode == "cursor":
+        selected.add("cursor")
+    if args.claude or args.legacy_mode == "claude":
+        selected.add("claude")
+    return sorted(selected)
+
+
+def main() -> int:
+    args = parse_args()
+    target_dir = Path(args.dir).expanduser().resolve()
+    if not target_dir.is_dir():
+        print(f"Error: target directory does not exist: {target_dir}", file=sys.stderr)
+        return 1
+
+    selected_targets = collect_selected_targets(args)
+    blueprint_path, created = bootstrap_blueprint(target_dir)
+
+    if created:
+        print(f"Created {blueprint_path}")
+        if selected_targets:
+            print("Edit init-orch.md to describe your orchestration design, then rerun init-orch.")
+            return 0
+
+    if not selected_targets:
+        if args.init or created:
+            print("init-orch.md is ready. Fill it in, then rerun with --cursor, --claude, or --all.")
+            return 0
+        print("Nothing to render. Use --cursor, --claude, or --all after editing init-orch.md.")
+        return 0
+
+    try:
+        render_targets(target_dir, selected_targets, blueprint_path)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+    print("Rendered orchestration files for " + ", ".join(selected_targets) + f" in {target_dir}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
