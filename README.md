@@ -1,58 +1,82 @@
 # init-orch
 
-`init-orch` bootstraps and re-renders agent orchestration files for a repository from one editable source: `init-orch.md`.
+`init-orch` is the practical runtime behind Zubeldia: a simple loop for solo coders who want to bootstrap an agent setup quickly, compile it from one source of truth, and review it deliberately over time.
 
 Project's name on [Osvaldo Zubeldía](https://es.wikipedia.org/wiki/Osvaldo_Zubeld%C3%ADa), former DT Estudiantes de La Plata, world-champion 1968.
 
-Instead of hand-editing `.cursor/`, `.claude/`, `AGENTS.md`, and related config files, you describe your intended workflow, permissions, roles, imports, and evaluation loop once, then generate the target-specific files from that blueprint.
+Instead of hand-editing `.cursor/`, `.claude/`, `AGENTS.md`, and related config files, you describe the workflow once in `init-orch.md` and generate the tool-specific files from that blueprint.
 
-## What It Does
+## The Product Loop
 
-- Creates `init-orch.md` in a new repo.
-- Uses that file as the canonical source of truth.
-- Can bootstrap that first blueprint from a composed workflow-domain preset.
-- Generates:
-  - `AGENTS.md`
-  - `orch/permissions.policy.json`
-  - `orch/imports.lock.json`
-  - `orch/evaluation.plan.json`
-  - `.cursor/` rules, skills, imports, and MCP config
-  - `.claude/` settings, rules, agents, skills, and imports
-- Re-generates recommendations so you can iteratively improve the orchestration as the project evolves.
+### Bootstrap
 
-## Why It Helps
-
-Most adjacent tools either:
-- generate one agent file,
-- sync configs across tools,
-- or ship reusable prompt/skill packs.
-
-`init-orch` is different in one important way: it treats the whole repo setup as a small orchestration system compiled from a single spec.
-
-That makes it useful when you want to:
-- keep Cursor and Claude aligned without duplicating effort,
-- evolve your human-agent workflow over time,
-- import MCPs or capability packs in a structured way,
-- keep permissions and safety expectations explicit,
-- review recommendations before changing the canonical setup.
-
-## Practical Use
-
-In a brand new repo:
+Run `init-orch` in a new repository and it can guide you through a short interactive setup:
 
 ```bash
 init-orch
 ```
 
-That creates `init-orch.md`.
+The bootstrap flow is intentionally small. It asks for:
 
-If you want a stronger first draft, start with a preset:
+- a `workflow-domain` preset
+- a short project summary
+- target platforms
+- a risk posture
+
+It then creates a ready-to-edit `init-orch.md` and tells you what to fill in next.
+
+If you already know what you want, you can skip the prompts and bootstrap directly:
 
 ```bash
-init-orch --preset engineering-web-app
+init-orch --preset engineering-web-app --no-interactive
 ```
 
-Presets now compose a workflow and a domain in `workflow-domain` form, for example:
+### Compile
+
+`init-orch.md` is the canonical source of truth. Edit that file, then compile the target-specific outputs:
+
+```bash
+init-orch --all
+```
+
+That generates:
+
+- `AGENTS.md`
+- `orch/permissions.policy.json`
+- `orch/imports.lock.json`
+- `orch/evaluation.plan.json`
+- `.cursor/` rules, skills, imports, and MCP config
+- `.claude/` settings, rules, agents, skills, and imports
+
+The compile step is the strongest idea in the project: one high-level spec, many generated outputs, explicit review before changing the setup.
+
+### Review
+
+When the setup feels stale or off, ask for a deliberate review:
+
+```bash
+init-orch --review
+```
+
+This prints practical recommendations without rewriting files. The goal is not an always-on orchestration brain. The goal is a lightweight review loop that helps you tighten the setup when it matters.
+
+## Why This Is Useful
+
+This is aimed at solo coders and small independent setups, not enterprise governance.
+
+It is useful when you want to:
+
+- get from zero to a decent multi-agent setup in a few minutes
+- keep Cursor and Claude aligned without duplicating effort
+- keep permissions, roles, and verification expectations explicit
+- improve the setup over time without rebuilding it from scratch
+- carry the same orchestration intent from project to project
+
+The practical promise is portability of intent, not perfect invariance across every future platform.
+
+## Presets
+
+Presets use `workflow-domain` form, for example:
 
 - `research-docs`
 - `engineering-web-app`
@@ -60,59 +84,43 @@ Presets now compose a workflow and a domain in `workflow-domain` form, for examp
 
 Available workflows:
 
-| Workflow | Best For | Strengths | Weaknesses |
-| --- | --- | --- | --- |
-| `research` | Academic or exploratory work, synthesis, literature review, and careful iteration | Stronger evidence discipline, clearer assumptions, better support for source-driven work | Less optimized for shipping production-ready changes quickly |
-| `engineering` | Long-term software delivery and maintainable production work | Stronger maintainability, reviewability, and production-readiness | Can feel heavy for open-ended exploration or very early ideas |
-| `poc` | Rapid prototyping and quick idea validation | Low ceremony, fast iteration, optimized for momentum | Encourages shortcuts that should later harden into research or engineering |
+| Workflow | Best For | Bias |
+| --- | --- | --- |
+| `research` | Exploratory work, synthesis, and careful source-driven iteration | Stronger evidence discipline, less production pressure |
+| `engineering` | Maintainable long-term delivery | Balanced default, stronger production-readiness |
+| `poc` | Fast experiments and idea validation | Lighter process, faster iteration |
 
 Available domains:
 
-| Domain | Best For | Strengths | Weaknesses |
-| --- | --- | --- | --- |
-| `generic` | Libraries, APIs, backends, CLIs, and general software repos | Broad default with minimal assumptions | Less tailored than domain-specific presets |
-| `web-app` | Frontend or full-stack apps with UI flows and browser-based verification | Good fit for interaction testing, app flows, and user-facing checks | Adds unnecessary assumptions for non-UI repos |
-| `data-science` | Notebook-heavy analysis, experiments, modeling, and evaluation | Better support for experiments, metrics, and reproducibility notes | Less focused on production hardening by default |
-| `infra` | Ops, deployment, automation, and environment-heavy repositories | Stronger operational safety, explicit blast-radius review, careful change control | Can slow down fast product exploration |
-| `docs` | Documentation-first repos and writing-heavy workflows | Clearer editorial structure, consistency, and reviewability | Less tailored to runtime behavior and implementation work |
-| `multimedia` | Projects involving media assets, generation, transformation, or review | Better fit for multimodal workflows and asset-heavy tasks | Less useful for pure codebases with little media handling |
+| Domain | Best For | Bias |
+| --- | --- | --- |
+| `generic` | Libraries, APIs, backends, CLIs, and general software repos | Broad default |
+| `web-app` | Frontend or full-stack apps with UI work | Stronger UI and behavior verification |
+| `data-science` | Notebooks, experiments, and models | Stronger reproducibility and experiment review |
+| `infra` | Infrastructure, automation, and ops work | Stricter safety and approval defaults |
+| `docs` | Documentation-first repositories | Stronger editorial review |
+| `multimedia` | Asset-heavy or multimodal workflows | Stronger review and provenance awareness |
 
 The default preset is `engineering-generic`.
 
-`project.riskPosture` is still a separate field in `init-orch.md`. It is not part of the preset; use it only if you want to tune how cautious or permissive the orchestration should be beyond the workflow/domain default.
+`project.riskPosture` stays separate from the preset so you can tune how cautious the setup should be.
 
-Future direction: a later version could ask for a short free-form project description and recommend the closest workflow-domain preset automatically.
+## What To Fill In First
 
-What to fill in first:
+If the project is still fuzzy, do not try to perfect the whole spec.
 
-1. Start with project shape and guardrails: `preset`, mission, success criteria, targets, stop conditions, verification, and `toolPolicy`. These drive the most important generated files first, especially `orch/permissions.policy.json`, Claude settings/rules, and recommendation quality.
-2. Add roles, handoffs, and high-level rules next. These make `AGENTS.md` and Claude agent files actually useful.
-3. Add imports, MCPs, and target-specific overrides once the core workflow is clear. They are powerful, but they are optional and easier to review after the base orchestration makes sense.
-4. Add skills after that. They are accelerators, not prerequisites.
-5. Tune evaluation and evaluator refinements last. They improve the loop over time, but should not block first use.
+1. Start with project shape and guardrails: `preset`, mission, success criteria, targets, stop conditions, verification, and `toolPolicy`.
+2. Add roles, handoffs, and high-level rules.
+3. Add imports, MCPs, and target-specific overrides once the core workflow is clear.
+4. Add skills after that.
+5. Tune evaluation and review refinements last.
 
-If the project is still fuzzy, getting through steps 1 and 2 is enough for a meaningful first render.
-
-Your chosen preset then shifts the emphasis inside that order. For example, `research-*` pushes evidence and assumptions earlier, `engineering-*` pushes maintainability and approvals earlier, and `data-science` pushes reproducibility and experiment notes earlier.
-
-Edit `init-orch.md` with:
-- your project mission,
-- roles such as planner / implementer / reviewer / evaluator,
-- workflow and verification rules,
-- permission policy,
-- imports such as MCPs or capability packs.
-
-Then render everything:
-
-```bash
-init-orch --all
-```
-
-Now work normally in the repo. When the setup feels off, update `init-orch.md`, re-run `init-orch --all`, and review the generated recommendations block to decide what should become part of the canonical orchestration.
+For a first useful pass, steps 1 and 2 are enough.
 
 ## Installation
 
 Requirements:
+
 - `python3`
 
 Clone the repo and make the script available on your `PATH`:
@@ -134,19 +142,19 @@ init-orch --help
 
 ```bash
 mkdir my-new-repo && cd my-new-repo
-init-orch --preset research-docs
-# edit init-orch.md
+init-orch
+# refine init-orch.md
 init-orch --all
+init-orch --review
 ```
 
-If you want a longer example, see `docs/quickstart.md`.
+If you want a longer walkthrough, see `docs/quickstart.md`.
 
 ## Roadmap
 
-Not implemented yet, but planned:
+Planned next steps:
 
-- stronger import resolution for real MCP registries and third-party packs
-- better target-specific rendering beyond Cursor and Claude
-- richer evaluator logic based on actual repo usage, not only static spec analysis
-- interactive workflow-domain recommendation from a short project description
-- adapters for external orchestration runtimes and ecosystems
+- keep improving the bootstrap flow while preserving a fast non-interactive path
+- strengthen review recommendations with limited local context
+- improve target-specific rendering without bloating the core workflow
+- explore additional adapters after the bootstrap and review loop feel solid

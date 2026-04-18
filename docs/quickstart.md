@@ -1,20 +1,34 @@
 # Quickstart
 
-`init-orch` now works in two steps:
+`init-orch` works best as a practical three-step loop:
 
-1. Run `init-orch` in a new repository. This creates `init-orch.md`.
-2. Edit `init-orch.md`, then run `init-orch --cursor`, `init-orch --claude`, or `init-orch --all`.
+1. Bootstrap a repository with a short interactive setup.
+2. Compile one source of truth into tool-specific files.
+3. Review the setup deliberately when it starts feeling off.
 
 `init-orch.md` is the only high-level file you should edit directly. The generated files under `.cursor/`, `.claude/`, `AGENTS.md`, and `orch/` are derived outputs.
 
 > Security warning: enabling edit, write, delete, shell, network, or external tool access can expose code, secrets, and local data to irreversible changes or exfiltration. Start with least privilege and require approval for high-impact actions.
 
-## Presets
+## 1. Bootstrap
 
-You can bootstrap the first `init-orch.md` from a preset:
+In a new repository, run:
 
 ```bash
-init-orch --preset research-docs
+init-orch
+```
+
+In a terminal, `init-orch` can guide you through a short bootstrap flow. It asks for:
+
+- a `workflow-domain` preset
+- a short project summary
+- target platforms
+- a risk posture
+
+If you prefer to skip the prompts, bootstrap directly:
+
+```bash
+init-orch --preset research-docs --no-interactive
 ```
 
 Presets are composed as `workflow-domain`.
@@ -40,30 +54,53 @@ Domains:
 
 The default preset is `engineering-generic`.
 
+## 2. Compile
+
+After bootstrap, refine `init-orch.md` and then render the target-specific outputs:
+
+```bash
+init-orch --all
+```
+
+Or render only one target:
+
+```bash
+init-orch --cursor
+init-orch --claude
+```
+
 ## What to fill in first
 
 If you are not fully sure what the project should look like yet, use this order:
 
 1. Project shape and guardrails: preset, mission, success criteria, targets, stop conditions, verification, and `toolPolicy`.
-   This mainly affects `orch/permissions.policy.json`, Claude settings/rules, core workflow rules, and the quality of generated recommendations.
+   This mainly affects `orch/permissions.policy.json`, Claude settings/rules, core workflow rules, and recommendation quality.
 2. Roles and collaboration shape: roles, handoffs, and repository rules.
    This mainly affects `AGENTS.md` and Claude agent files.
 3. Capabilities and integrations: imports, MCPs, and target overrides.
    This mainly affects imports manifests, `orch/imports.lock.json`, and Cursor MCP output when relevant.
 4. Reusable accelerators: skills.
    This mainly affects Cursor and Claude skill files.
-5. Meta-iteration: evaluation and evaluator refinements.
-   This mainly affects `orch/evaluation.plan.json` and longer-term workflow tuning.
+5. Meta-iteration: evaluation and review refinements.
+   This mainly affects `orch/evaluation.plan.json` and the long-term setup loop.
 
 For a first useful pass, steps 1 and 2 are enough. The rest can stay rough until after the first render.
 
-The chosen preset then changes what to stress inside that order. For example, `research-*` raises evidence and assumptions, `engineering-*` raises maintainability and approvals, and `data-science` raises reproducibility and experiment notes.
-
 If `init-orch.md` already exists, the preset is ignored and your existing blueprint is preserved.
+
+## 3. Review
+
+When the setup feels stale, run:
+
+```bash
+init-orch --review
+```
+
+This prints practical recommendations without rewriting files. Treat it as an opt-in review loop, not an autonomous control plane.
 
 ## Minimal example
 
-Keep the rest of the file as generated and just replace the spec block with something like:
+Keep the rest of the file as generated and replace the spec block with something like:
 
 ```json
 {
@@ -229,7 +266,7 @@ That will regenerate:
 - `.cursor/rules/*`, `.cursor/skills/*`, `.cursor/imports/manifest.json`, and `.cursor/mcp.json` when MCP imports target Cursor
 - `.claude/settings.json`, `.claude/settings.local.json.example`, `.claude/rules/*`, `.claude/agents/*`, `.claude/skills/*`, and `.claude/imports/manifest.json`
 
-Iterate by editing `init-orch.md`, re-running `init-orch --all`, and then deciding whether the generated recommendations should be folded back into the spec.
+Later, run `init-orch --review` to get practical recommendations and decide whether they should be folded back into the spec.
 
 ## Practical preset example
 
@@ -237,9 +274,10 @@ For a frontend-heavy app:
 
 ```bash
 mkdir my-web-app && cd my-web-app
-init-orch --preset engineering-web-app
+init-orch --preset engineering-web-app --no-interactive
 # review and fine-tune init-orch.md
 init-orch --all
+init-orch --review
 ```
 
 That gives you a better first draft for UI-oriented workflow, verification, and imports than the generic default.

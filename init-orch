@@ -2566,6 +2566,8 @@ def main() -> int:
         print(f"Preset '{args.preset}' ignored because init-orch.md already exists.")
 
     if not selected_targets:
+        if guided_bootstrap_used:
+            return 0
         if args.init or created:
             print("init-orch.md is ready. Fill it in, then rerun with --cursor, --claude, or --all.")
             return 0
