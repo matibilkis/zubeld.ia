@@ -14,20 +14,31 @@
 You can bootstrap the first `init-orch.md` from a preset:
 
 ```bash
-init-orch --preset research
+init-orch --preset research-docs
 ```
 
-Available presets:
+Presets are composed as `workflow-domain`.
 
-| Preset | Best for | Bias |
+Workflows:
+
+| Workflow | Best for | Bias |
 |------|------|------|
-| `research` | exploration, synthesis, studies | stronger planning, lower edit risk |
-| `engineering` | general software projects | balanced default |
-| `web-app` | frontend or full-stack apps | UI and behavior verification |
+| `research` | exploration, synthesis, studies | stronger evidence review, less production pressure |
+| `engineering` | maintainable long-term delivery | balanced default, stronger production-readiness |
 | `poc` | fast experiments | lighter process, faster iteration |
-| `multimedia` | content and asset workflows | stronger review and external pack awareness |
+
+Domains:
+
+| Domain | Best for | Bias |
+|------|------|------|
+| `generic` | libraries, services, APIs, CLIs | broad default |
+| `web-app` | frontend or full-stack apps | UI and behavior verification |
+| `data-science` | notebooks, experiments, models | reproducibility and experiment review |
 | `infra` | infrastructure or ops work | stricter approvals and plan-first behavior |
-| `docs` | documentation-focused repos | low-risk editing and lighter verification |
+| `docs` | documentation-focused repos | editorial review and low implementation assumptions |
+| `multimedia` | content and asset workflows | stronger review and provenance awareness |
+
+The default preset is `engineering-generic`.
 
 If `init-orch.md` already exists, the preset is ignored and your existing blueprint is preserved.
 
@@ -38,7 +49,9 @@ Keep the rest of the file as generated and just replace the spec block with some
 ```json
 {
   "version": 2,
-  "preset": "engineering",
+  "preset": "engineering-generic",
+  "workflowPreset": "engineering",
+  "domainPreset": "generic",
   "project": {
     "name": "api-service",
     "summary": "Internal API service. Optimize for safe edits, clear plans, and focused verification.",
@@ -197,7 +210,7 @@ For a frontend-heavy app:
 
 ```bash
 mkdir my-web-app && cd my-web-app
-init-orch --preset web-app
+init-orch --preset engineering-web-app
 # review and fine-tune init-orch.md
 init-orch --all
 ```

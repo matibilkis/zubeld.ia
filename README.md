@@ -10,7 +10,7 @@ Instead of hand-editing `.cursor/`, `.claude/`, `AGENTS.md`, and related config 
 
 - Creates `init-orch.md` in a new repo.
 - Uses that file as the canonical source of truth.
-- Can bootstrap that first blueprint from a repo-type preset.
+- Can bootstrap that first blueprint from a composed workflow-domain preset.
 - Generates:
   - `AGENTS.md`
   - `orch/permissions.policy.json`
@@ -49,22 +49,39 @@ That creates `init-orch.md`.
 If you want a stronger first draft, start with a preset:
 
 ```bash
-init-orch --preset web-app
+init-orch --preset engineering-web-app
 ```
 
-Available presets:
+Presets now compose a workflow and a domain in `workflow-domain` form, for example:
 
-| Preset        | Best For                                                                     | Strengths                                                               | Weaknesses                                                          |
-| ------------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| `research`    | Exploratory work, experiments, rapid iteration, evaluation-heavy loops       | Flexible, fast to adapt, good for trying ideas and debugging on the fly | Less opinionated about delivery discipline and production hardening |
-| `engineering` | Shipping software with clear implementation, review, and verification stages | Repeatable workflow, stronger quality controls, clearer role separation | Can feel heavy for open-ended exploration or very early ideas       |
-| `web-app`     | Frontend or full-stack apps with UI flows and browser-based verification     | Good fit for interaction testing, app flows, and user-facing checks     | Adds unnecessary assumptions for non-UI repos                       |
-| `poc`         | Proving an idea quickly with minimal setup                                   | Low ceremony, fast to start, optimized for momentum                     | Weaker on long-term maintainability, review depth, and hardening    |
-| `multimedia`  | Projects involving media assets, generation, transformation, or review       | Better fit for multimodal workflows and asset-heavy tasks               | Less useful for pure codebases with little media handling           |
-| `infra`       | Ops, deployment, automation, and environment-heavy repositories              | Stronger safety posture, explicit permissions, careful change control   | Can slow down fast product exploration                              |
-| `docs`        | Documentation-first repos and writing-heavy workflows                        | Clearer editorial structure, consistency, and reviewability             | Less tailored to implementation and runtime verification            |
+- `research-docs`
+- `engineering-web-app`
+- `poc-data-science`
 
-Future direction: a later version could ask for a short free-form project description and recommend the closest preset automatically.
+Available workflows:
+
+| Workflow | Best For | Strengths | Weaknesses |
+| --- | --- | --- | --- |
+| `research` | Academic or exploratory work, synthesis, literature review, and careful iteration | Stronger evidence discipline, clearer assumptions, better support for source-driven work | Less optimized for shipping production-ready changes quickly |
+| `engineering` | Long-term software delivery and maintainable production work | Stronger maintainability, reviewability, and production-readiness | Can feel heavy for open-ended exploration or very early ideas |
+| `poc` | Rapid prototyping and quick idea validation | Low ceremony, fast iteration, optimized for momentum | Encourages shortcuts that should later harden into research or engineering |
+
+Available domains:
+
+| Domain | Best For | Strengths | Weaknesses |
+| --- | --- | --- | --- |
+| `generic` | Libraries, APIs, backends, CLIs, and general software repos | Broad default with minimal assumptions | Less tailored than domain-specific presets |
+| `web-app` | Frontend or full-stack apps with UI flows and browser-based verification | Good fit for interaction testing, app flows, and user-facing checks | Adds unnecessary assumptions for non-UI repos |
+| `data-science` | Notebook-heavy analysis, experiments, modeling, and evaluation | Better support for experiments, metrics, and reproducibility notes | Less focused on production hardening by default |
+| `infra` | Ops, deployment, automation, and environment-heavy repositories | Stronger operational safety, explicit blast-radius review, careful change control | Can slow down fast product exploration |
+| `docs` | Documentation-first repos and writing-heavy workflows | Clearer editorial structure, consistency, and reviewability | Less tailored to runtime behavior and implementation work |
+| `multimedia` | Projects involving media assets, generation, transformation, or review | Better fit for multimodal workflows and asset-heavy tasks | Less useful for pure codebases with little media handling |
+
+The default preset is `engineering-generic`.
+
+`project.riskPosture` is still a separate field in `init-orch.md`. It is not part of the preset; use it only if you want to tune how cautious or permissive the orchestration should be beyond the workflow/domain default.
+
+Future direction: a later version could ask for a short free-form project description and recommend the closest workflow-domain preset automatically.
 
 Edit `init-orch.md` with:
 - your project mission,
@@ -105,7 +122,7 @@ init-orch --help
 
 ```bash
 mkdir my-new-repo && cd my-new-repo
-init-orch --preset research
+init-orch --preset research-docs
 # edit init-orch.md
 init-orch --all
 ```
@@ -119,6 +136,5 @@ Not implemented yet, but planned:
 - stronger import resolution for real MCP registries and third-party packs
 - better target-specific rendering beyond Cursor and Claude
 - richer evaluator logic based on actual repo usage, not only static spec analysis
-- interactive preset recommendation from a short project description
+- interactive workflow-domain recommendation from a short project description
 - adapters for external orchestration runtimes and ecosystems
-- composable profiles beyond a single preset, such as vertical + risk posture

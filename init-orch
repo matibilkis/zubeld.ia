@@ -819,10 +819,9 @@ def base_blueprint_spec(repo_name: str) -> dict:
     }
 
 
-def preset_overrides(preset: str) -> dict:
-    if preset == "research":
+def workflow_preset_overrides(workflow: str) -> dict:
+    if workflow == "research":
         return {
-            "preset": "research",
             "project": {
                 "summary": "Research-oriented project. Optimize for clarity, synthesis, references, and careful iteration.",
                 "mission": "Help humans explore, synthesize, and refine ideas without over-committing to premature implementation.",
@@ -830,9 +829,8 @@ def preset_overrides(preset: str) -> dict:
                 "successCriteria": [
                     "Capture findings and assumptions clearly.",
                     "Make sources and evidence easy to review.",
-                    "Avoid unnecessary code changes before the direction is validated.",
+                    "Avoid unnecessary implementation before the direction is validated.",
                 ],
-                "riskPosture": "cautious",
                 "maturity": "exploring",
             },
             "rules": [
@@ -879,9 +877,8 @@ def preset_overrides(preset: str) -> dict:
                 }
             ],
             "toolPolicy": {
-                "allow": ["Read(*)", "Glob(*)", "Grep(*)", "WebFetch", "WebSearch"],
                 "risky": ["Edit(*)", "Write(*)"],
-                "deny": ["Delete(*)", "Bash(*)", "Edit(.env*)"],
+                "deny": ["Delete(*)", "Bash(*)"],
                 "requiresApproval": ["Edit(*)", "Write(*)"],
             },
             "evaluation": {
@@ -895,26 +892,99 @@ def preset_overrides(preset: str) -> dict:
                     "Keep the exploration process auditable.",
                 ],
             },
-            "imports": [],
         }
-    if preset == "web-app":
+    if workflow == "engineering":
         return {
-            "preset": "web-app",
+            "project": {
+                "summary": "Engineering-oriented project. Optimize for maintainable, production-ready changes with focused verification.",
+                "mission": "Let agents deliver small, reviewable improvements that hold up in long-term maintenance and production use.",
+                "style": "practical",
+                "successCriteria": [
+                    "Ship maintainable changes that can survive long-term ownership.",
+                    "Keep verification focused on correctness, regressions, and operability.",
+                ],
+                "maturity": "growing",
+            },
+            "rules": [
+                "Prefer maintainable solutions over clever shortcuts.",
+                "Keep diffs reviewable and verification relevant to the change.",
+            ],
+            "workflow": {
+                "planningTrigger": "Plan first for non-trivial or cross-cutting implementation work.",
+                "implementationFocus": "Prefer the smallest production-ready change that solves the real problem.",
+                "reviewChecklist": [
+                    "Confirm the design still looks maintainable in six months.",
+                    "Check for missing tests, rollback concerns, or obvious operational gaps.",
+                ],
+            },
+            "evaluation": {
+                "goals": [
+                    "Reduce human babysitting without weakening production discipline.",
+                    "Keep the workflow maintainable as the repository grows.",
+                ],
+            },
+        }
+    if workflow == "poc":
+        return {
+            "project": {
+                "summary": "Proof-of-concept project. Optimize for validating an idea quickly without losing basic safety.",
+                "mission": "Move quickly enough to validate the concept while keeping the experiment understandable and easy to discard or evolve.",
+                "style": "fast-iteration",
+                "successCriteria": [
+                    "Validate the core idea quickly.",
+                    "Keep the experiment small and easy to reset.",
+                    "Document what worked, what failed, and what should happen next.",
+                ],
+                "maturity": "prototype",
+            },
+            "rules": [
+                "Prefer speed, but keep changes reviewable.",
+                "Document shortcuts and unresolved risks explicitly.",
+                "Ask before touching secrets or production-like systems.",
+            ],
+            "workflow": {
+                "implementationFocus": "Prefer the fastest small experiment that can prove or disprove the idea.",
+                "reviewChecklist": [
+                    "Check whether the prototype answered the main question.",
+                    "List shortcuts, debt, or hardening work introduced by the experiment.",
+                ],
+            },
+            "verification": [
+                {
+                    "changeType": "prototype",
+                    "required": ["Run a smoke check or explain how the PoC was validated."],
+                }
+            ],
+            "toolPolicy": {
+                "risky": ["Edit(*)", "Write(*)", "Bash(*)"],
+                "requiresApproval": ["Bash(*)"],
+            },
+            "evaluation": {
+                "goals": [
+                    "Reduce friction during rapid experimentation.",
+                    "Make it obvious when the prototype should harden into engineering or split into research.",
+                ]
+            },
+        }
+    return {}
+
+
+def domain_preset_overrides(domain: str) -> dict:
+    if domain == "generic":
+        return {}
+    if domain == "web-app":
+        return {
             "project": {
                 "summary": "Web application project. Optimize for shipping UI and product changes safely with clear verification.",
-                "mission": "Let agents accelerate product development while keeping UI quality, behavior, and safety reviewable.",
                 "style": "product",
                 "successCriteria": [
                     "Small reviewable UI and product changes.",
                     "Focused verification for behavior and UX.",
                     "Clear separation between implementation work and polish.",
                 ],
-                "riskPosture": "moderate",
-                "maturity": "growing",
             },
             "workflow": {
                 "planningTrigger": "Plan before changes that span frontend, backend, or product behavior.",
-                "implementationFocus": "Prefer the smallest slice that delivers a visible product improvement.",
                 "reviewChecklist": [
                     "Check behavior in the relevant UI path.",
                     "Check for obvious UX or accessibility regressions.",
@@ -974,124 +1044,79 @@ def preset_overrides(preset: str) -> dict:
                 },
             ],
         }
-    if preset == "poc":
+    if domain == "data-science":
         return {
-            "preset": "poc",
             "project": {
-                "summary": "Proof-of-concept project. Optimize for validating an idea quickly without losing basic safety.",
-                "mission": "Move quickly enough to validate the concept while keeping the experiment understandable and easy to discard.",
-                "style": "fast-iteration",
+                "summary": "Data science project. Optimize for exploratory analysis, experiment traceability, and reproducible results.",
+                "style": "analysis",
                 "successCriteria": [
-                    "Validate the core idea quickly.",
-                    "Keep the experiment small and easy to reset.",
-                    "Document what worked and what failed.",
+                    "Keep datasets, notebooks, and experiments easy to trace.",
+                    "Make model and analysis results reproducible enough for review.",
+                    "Separate exploratory work from reusable pipelines when the project matures.",
                 ],
-                "riskPosture": "fast",
-                "maturity": "prototype",
+                "maturity": "exploring",
             },
             "rules": [
-                "Prefer speed, but keep changes reviewable.",
-                "Document shortcuts and unresolved risks explicitly.",
-                "Ask before touching secrets or production-like systems.",
+                "Record dataset assumptions, experiment context, and notable caveats.",
+                "Prefer reproducible scripts or notebooks over one-off undocumented steps.",
             ],
             "workflow": {
-                "implementationFocus": "Prefer the fastest small experiment that can prove or disprove the idea.",
+                "planningTrigger": "Plan before large experiment sweeps, data reshaping, or model-training changes.",
                 "reviewChecklist": [
-                    "Check whether the prototype answered the main question.",
-                    "List shortcuts or debt introduced by the experiment.",
+                    "Check whether the data source, slice, or feature assumptions are explicit.",
+                    "Check whether a teammate could reproduce the result with the recorded context.",
+                ],
+                "stopConditions": [
+                    "Stop when the dataset, metric, or experiment context is unclear.",
                 ],
             },
             "verification": [
                 {
-                    "changeType": "prototype",
-                    "required": ["Run a smoke check or explain how the PoC was validated."],
-                }
-            ],
-            "toolPolicy": {
-                "allow": ["Read(*)", "Glob(*)", "Grep(*)", "WebFetch", "WebSearch"],
-                "risky": ["Edit(*)", "Write(*)", "Bash(*)"],
-                "deny": ["Bash(rm -rf *)", "Bash(sudo *)", "Edit(.env*)"],
-                "requiresApproval": ["Bash(*)", "Edit(.env*)", "Delete(*)"],
-            },
-            "evaluation": {
-                "goals": [
-                    "Reduce friction during rapid experimentation.",
-                    "Make it obvious when the prototype should be hardened or discarded.",
-                ]
-            },
-            "imports": [],
-        }
-    if preset == "multimedia":
-        return {
-            "preset": "multimedia",
-            "project": {
-                "summary": "Multimedia content generation project. Optimize for repeatable asset production, review, and publication readiness.",
-                "mission": "Use agents to assist content creation while keeping quality, licensing, and review steps explicit.",
-                "style": "creative",
-                "successCriteria": [
-                    "Make content generation repeatable.",
-                    "Keep approval and review steps explicit.",
-                    "Track external assets and capability packs clearly.",
-                ],
-                "riskPosture": "moderate",
-                "maturity": "growing",
-            },
-            "rules": [
-                "Track external assets and generated content sources explicitly.",
-                "Keep review steps for publication quality and rights clear.",
-                "Ask before broad destructive changes or tool access.",
-            ],
-            "verification": [
-                {
-                    "changeType": "content",
-                    "required": ["Review output quality and note any manual fixes or caveats."],
+                    "changeType": "notebook",
+                    "required": ["Summarize what was run, what state or data it depended on, and what result changed."],
                 },
                 {
-                    "changeType": "assets",
-                    "required": ["Check asset provenance, naming, and output location."],
+                    "changeType": "model",
+                    "required": ["Report the main evaluation metric, comparison baseline, and notable caveats."],
+                },
+                {
+                    "changeType": "data",
+                    "required": ["Describe dataset provenance, transformations, and any reproducibility limits."],
                 },
             ],
             "skills": [
                 {
-                    "id": "content-review",
-                    "when": "Use before publishing generated multimedia output.",
+                    "id": "experiment-review",
+                    "when": "Use when evaluating notebooks, experiments, or model changes.",
                     "steps": [
-                        "Review the generated output against the brief.",
-                        "Check quality, consistency, and obvious rights issues.",
-                        "Summarize what still needs human approval.",
+                        "State the question the experiment is trying to answer.",
+                        "Record the data, parameters, and environment assumptions.",
+                        "Summarize the result, confidence level, and next experiment.",
                     ],
-                    "outputs": ["Review summary", "Publication blockers"],
+                    "outputs": ["Experiment summary", "Reproducibility notes"],
                 }
             ],
-            "imports": [
-                {
-                    "id": "paperclip",
-                    "type": "capabilityPack",
-                    "source": "https://paperclip.ing/",
-                    "version": "reference",
-                    "targets": ["cursor", "claude"],
-                    "note": "Reference for orchestrating multi-role creative workflows.",
-                    "trust": {"level": "review-required", "reviewedByHuman": False},
-                    "provides": {
-                        "notes": ["Review governance and coordination ideas before adoption."],
-                        "skills": [],
-                    },
-                }
-            ],
+            "evaluation": {
+                "signals": [
+                    "Experiments are hard to reproduce from the recorded notes.",
+                    "Model or notebook changes land without clear metrics or context.",
+                ],
+                "goals": [
+                    "Improve experiment traceability.",
+                    "Make exploratory work easier to turn into reusable assets.",
+                ],
+            },
         }
-    if preset == "infra":
+    if domain == "infra":
         return {
-            "preset": "infra",
             "project": {
                 "summary": "Infrastructure or operations project. Optimize for cautious planning, clear diffs, and explicit approval gates.",
-                "mission": "Reduce operational risk by keeping infra changes deliberate, reviewable, and easy to stop.",
                 "style": "ops",
                 "successCriteria": [
                     "Prefer diff and plan over direct changes.",
                     "Keep operational risk and blast radius explicit.",
                     "Require human approval for high-impact actions.",
                 ],
-                "riskPosture": "strict",
                 "maturity": "production",
             },
             "rules": [
@@ -1122,12 +1147,10 @@ def preset_overrides(preset: str) -> dict:
                 }
             ],
             "toolPolicy": {
-                "allow": ["Read(*)", "Glob(*)", "Grep(*)", "WebFetch", "WebSearch"],
                 "risky": ["Bash(terraform plan*)", "Bash(kubectl diff*)", "Write(*)"],
-                "deny": ["Delete(*)", "Bash(terraform apply*)", "Bash(kubectl delete*)", "Bash(sudo *)"],
-                "requiresApproval": ["Write(*)", "Bash(*)", "Edit(.env*)", "Delete(*)"],
+                "deny": ["Bash(terraform apply*)", "Bash(kubectl delete*)"],
+                "requiresApproval": ["Write(*)", "Bash(*)", "Delete(*)"],
             },
-            "imports": [],
             "evaluation": {
                 "signals": [
                     "Agents attempt mutation too early.",
@@ -1139,19 +1162,16 @@ def preset_overrides(preset: str) -> dict:
                 ],
             },
         }
-    if preset == "docs":
+    if domain == "docs":
         return {
-            "preset": "docs",
             "project": {
                 "summary": "Documentation-focused project. Optimize for clarity, consistency, and low-risk iteration.",
-                "mission": "Keep documentation useful, coherent, and easy to update while minimizing unnecessary operational risk.",
                 "style": "documentation",
                 "successCriteria": [
                     "Improve clarity and structure.",
                     "Keep updates easy to review.",
                     "Avoid overcomplicating low-risk documentation work.",
                 ],
-                "riskPosture": "low",
                 "maturity": "maintained",
             },
             "verification": [
@@ -1161,12 +1181,10 @@ def preset_overrides(preset: str) -> dict:
                 }
             ],
             "toolPolicy": {
-                "allow": ["Read(*)", "Glob(*)", "Grep(*)", "WebFetch", "WebSearch"],
                 "risky": ["Edit(*)", "Write(*)"],
-                "deny": ["Delete(*)", "Bash(sudo *)", "Edit(.env*)"],
-                "requiresApproval": ["Delete(*)", "Bash(*)", "Edit(.env*)"],
+                "deny": ["Delete(*)"],
+                "requiresApproval": ["Delete(*)", "Bash(*)"],
             },
-            "imports": [],
             "evaluation": {
                 "goals": [
                     "Reduce repetitive doc-editing friction.",
@@ -1174,17 +1192,61 @@ def preset_overrides(preset: str) -> dict:
                 ]
             },
         }
+    if domain == "multimedia":
+        return {
+            "project": {
+                "summary": "Multimedia content generation project. Optimize for repeatable asset production, review, and publication readiness.",
+                "style": "creative",
+                "successCriteria": [
+                    "Make content generation repeatable.",
+                    "Keep approval and review steps explicit.",
+                    "Track external assets and generated content sources clearly.",
+                ],
+            },
+            "rules": [
+                "Track external assets and generated content sources explicitly.",
+                "Keep review steps for publication quality and rights clear.",
+                "Ask before broad destructive changes or tool access.",
+            ],
+            "verification": [
+                {
+                    "changeType": "content",
+                    "required": ["Review output quality and note any manual fixes or caveats."],
+                },
+                {
+                    "changeType": "assets",
+                    "required": ["Check asset provenance, naming, and output location."],
+                },
+            ],
+            "skills": [
+                {
+                    "id": "content-review",
+                    "when": "Use before publishing generated multimedia output.",
+                    "steps": [
+                        "Review the generated output against the brief.",
+                        "Check quality, consistency, and obvious rights issues.",
+                        "Summarize what still needs human approval.",
+                    ],
+                    "outputs": ["Review summary", "Publication blockers"],
+                }
+            ],
+        }
     return {}
 
 
 def build_preset_spec(repo_name: str, preset: str) -> dict:
-    preset_name = preset if preset in VALID_PRESETS else DEFAULT_PRESET
+    preset_name, workflow_name, domain_name = normalize_composed_preset(preset)
     spec = base_blueprint_spec(repo_name)
-    return deep_merge(spec, preset_overrides(preset_name))
+    spec = deep_merge(spec, workflow_preset_overrides(workflow_name))
+    spec = deep_merge(spec, domain_preset_overrides(domain_name))
+    spec["preset"] = preset_name
+    spec["workflowPreset"] = workflow_name
+    spec["domainPreset"] = domain_name
+    return spec
 
 
 def default_blueprint(repo_name: str, preset: str = DEFAULT_PRESET) -> str:
-    preset_name = preset if preset in VALID_PRESETS else DEFAULT_PRESET
+    preset_name, workflow_name, domain_name = normalize_composed_preset(preset)
     spec = build_preset_spec(repo_name, preset_name)
     generated = {
         "version": 2,
@@ -1193,6 +1255,8 @@ def default_blueprint(repo_name: str, preset: str = DEFAULT_PRESET) -> str:
         "generatedFiles": [],
         "resolvedImports": [],
         "bootstrapPreset": preset_name,
+        "workflowPreset": workflow_name,
+        "domainPreset": domain_name,
     }
     recommendations = {
         "version": 1,
@@ -1207,7 +1271,7 @@ def default_blueprint(repo_name: str, preset: str = DEFAULT_PRESET) -> str:
 
         > Security warning: {SECURITY_WARNING}
 
-        Preset: `{preset_name}`. {PRESET_DESCRIPTIONS[preset_name]}
+        Preset: `{preset_name}`. {preset_summary(workflow_name, domain_name)}
 
         Edit the JSON block below to describe the orchestration structure you want for this repository.
 
@@ -1970,6 +2034,8 @@ def render_targets(target_dir: Path, selected_targets: list[str], blueprint_path
         "renderedTargets": selected_targets,
         "generatedFiles": sorted(str(path.relative_to(target_dir)) for path in generated_paths),
         "bootstrapPreset": spec["preset"],
+        "workflowPreset": spec["workflowPreset"],
+        "domainPreset": spec["domainPreset"],
         "resolvedImports": [
             {
                 "id": item["id"],

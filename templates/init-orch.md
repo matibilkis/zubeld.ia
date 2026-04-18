@@ -1,31 +1,35 @@
-# Init Orch
+        # Init Orch
 
-`init-orch.md` is the only high-level file you should edit directly. The generated files under `.cursor/`, `.claude/`, `AGENTS.md`, and `orch/` are derived outputs.
+        `init-orch.md` is the only high-level file you should edit directly. The generated files under `.cursor/`, `.claude/`, `AGENTS.md`, and `orch/` are derived outputs.
 
-> Security warning: Granting edit, write, delete, shell, network, or external tool access can expose code, secrets, and local data to irreversible changes or exfiltration. Use least-privilege defaults, require approval for high-impact actions, and review imported capabilities before enabling them.
+        > Security warning: Granting edit, write, delete, shell, network, or external tool access can expose code, secrets, and local data to irreversible changes or exfiltration. Use least-privilege defaults, require approval for high-impact actions, and review imported capabilities before enabling them.
 
-Preset: `engineering`. Balanced default for general software projects such as libraries, backends, and services.
+        Preset: `engineering-generic`. Workflow `engineering`: Long-term delivery workflow focused on maintainable, production-ready changes. Domain `generic`: General software projects such as libraries, APIs, backends, and internal services.
 
-Edit the JSON block below to describe the orchestration structure you want for this repository.
+        Edit the JSON block below to describe the orchestration structure you want for this repository.
 
-<!-- Edit the JSON spec below. Everything else is generated from it. -->
+        <!-- Edit the JSON spec below. Everything else is generated from it. -->
 
-<!-- init-orch:spec:start -->
+        <!-- init-orch:spec:start -->
 ```json
 {
   "version": 2,
-  "preset": "engineering",
+  "preset": "engineering-generic",
+  "workflowPreset": "engineering",
+  "domainPreset": "generic",
   "project": {
-    "name": "your-repo",
-    "summary": "Describe what this repository does and what a successful change should optimize for.",
-    "mission": "Keep human and agent work aligned around practical, reviewable improvements.",
+    "name": "init-orch-template-rslbphvb",
+    "summary": "Engineering-oriented project. Optimize for maintainable, production-ready changes with focused verification.",
+    "mission": "Let agents deliver small, reviewable improvements that hold up in long-term maintenance and production use.",
     "style": "practical",
     "successCriteria": [
       "Ship small safe changes quickly.",
-      "Keep guidance easy for humans to update."
+      "Keep guidance easy for humans to update.",
+      "Ship maintainable changes that can survive long-term ownership.",
+      "Keep verification focused on correctness, regressions, and operability."
     ],
     "riskPosture": "moderate",
-    "maturity": "new"
+    "maturity": "growing"
   },
   "targets": [
     "cursor",
@@ -81,14 +85,18 @@ Edit the JSON block below to describe the orchestration structure you want for t
   "rules": [
     "Ask before destructive or irreversible actions.",
     "Prefer focused verification after changes.",
-    "Do not edit secrets or production credentials."
+    "Do not edit secrets or production credentials.",
+    "Prefer maintainable solutions over clever shortcuts.",
+    "Keep diffs reviewable and verification relevant to the change."
   ],
   "workflow": {
-    "planningTrigger": "Plan first for non-trivial or ambiguous changes.",
-    "implementationFocus": "Prefer the smallest safe change that improves the repository.",
+    "planningTrigger": "Plan first for non-trivial or cross-cutting implementation work.",
+    "implementationFocus": "Prefer the smallest production-ready change that solves the real problem.",
     "reviewChecklist": [
       "Confirm behavior changed as intended.",
-      "Check for missing verification."
+      "Check for missing verification.",
+      "Confirm the design still looks maintainable in six months.",
+      "Check for missing tests, rollback concerns, or obvious operational gaps."
     ],
     "escalation": [
       "Escalate when requirements are ambiguous.",
@@ -182,7 +190,9 @@ Edit the JSON block below to describe the orchestration structure you want for t
     ],
     "goals": [
       "Reduce human babysitting.",
-      "Improve safety without making normal work painful."
+      "Improve safety without making normal work painful.",
+      "Reduce human babysitting without weakening production discipline.",
+      "Keep the workflow maintainable as the repository grows."
     ],
     "recommendationFormat": "Short actionable recommendations grouped by risk and ergonomics."
   },
@@ -274,29 +284,31 @@ Edit the JSON block below to describe the orchestration structure you want for t
 ```
 <!-- init-orch:spec:end -->
 
-## Workflow
+        ## Workflow
 
-1. Fill in the spec block above.
-2. Run `init-orch --cursor`, `init-orch --claude`, or `init-orch --all`.
-3. Re-run the command whenever you change the orchestration design.
-4. Review the generated recommendations block and decide which changes belong in the spec.
+        1. Fill in the spec block above.
+        2. Run `init-orch --cursor`, `init-orch --claude`, or `init-orch --all`.
+        3. Re-run the command whenever you change the orchestration design.
+        4. Review the generated recommendations block and decide which changes belong in the spec.
 
-The generator will only rewrite the metadata and recommendations blocks below.
+        The generator will only rewrite the metadata and recommendations blocks below.
 
-<!-- init-orch:generated:start -->
+        <!-- init-orch:generated:start -->
 ```json
 {
   "version": 2,
   "lastRenderedAt": null,
   "renderedTargets": [],
   "generatedFiles": [],
-  "bootstrapPreset": "engineering",
-  "resolvedImports": []
+  "resolvedImports": [],
+  "bootstrapPreset": "engineering-generic",
+  "workflowPreset": "engineering",
+  "domainPreset": "generic"
 }
 ```
 <!-- init-orch:generated:end -->
 
-<!-- init-orch:recommendations:start -->
+        <!-- init-orch:recommendations:start -->
 ```json
 {
   "version": 1,

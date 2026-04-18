@@ -4,7 +4,7 @@ These are reference copies for the blueprint-first workflow.
 
 `init-orch.md` is the only file a repository owner is expected to edit directly. Everything under `.cursor/`, `.claude/`, `AGENTS.md`, and `orch/` should be treated as generated output.
 
-The checked-in `templates/init-orch.md` mirrors the default `engineering` preset.
+The checked-in `templates/init-orch.md` mirrors the default `engineering-generic` preset.
 
 The richer blueprint now supports:
 - workflow and verification guidance
