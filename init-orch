@@ -39,6 +39,83 @@ DOMAIN_PRESET_DESCRIPTIONS = {
     "docs": "Documentation-focused work with lighter implementation assumptions and stronger editorial review.",
     "multimedia": "Content and asset generation workflows with explicit review, provenance, and publication checks.",
 }
+PRIORITY_GUIDANCE = [
+    {
+        "level": "Priority 1",
+        "action": "Start here",
+        "title": "Project shape and guardrails",
+        "fields": [
+            "`preset`, `workflowPreset`, `domainPreset`",
+            "`project.summary`, `project.mission`, `project.successCriteria`",
+            "`targets`",
+            "`workflow.stopConditions`",
+            "`verification`",
+            "`toolPolicy`",
+        ],
+        "outputs": [
+            "`orch/permissions.policy.json`",
+            "core Cursor and Claude workflow rules",
+            "Claude settings and approval boundaries",
+            "recommendation quality",
+        ],
+    },
+    {
+        "level": "Priority 2",
+        "action": "Add next",
+        "title": "Roles and collaboration shape",
+        "fields": [
+            "`roles`",
+            "`handoffs`",
+            "`rules`",
+        ],
+        "outputs": [
+            "`AGENTS.md`",
+            "Claude agent files",
+            "clear ownership and review flow",
+        ],
+    },
+    {
+        "level": "Priority 3",
+        "action": "Add once the core workflow is clear",
+        "title": "Capabilities and integrations",
+        "fields": [
+            "`imports`",
+            "MCP declarations",
+            "`targetOverrides`",
+        ],
+        "outputs": [
+            "`orch/imports.lock.json`",
+            "Cursor and Claude import manifests",
+            "Cursor MCP configuration when relevant",
+        ],
+    },
+    {
+        "level": "Priority 4",
+        "action": "Optional for now",
+        "title": "Reusable accelerators",
+        "fields": [
+            "`skills`",
+        ],
+        "outputs": [
+            "Cursor and Claude skill files",
+            "reusable workflows for repeated tasks",
+        ],
+    },
+    {
+        "level": "Priority 5",
+        "action": "Tune later",
+        "title": "Meta-iteration",
+        "fields": [
+            "`evaluation`",
+            "evaluator-role refinements",
+            "retrospective cadence and recommendation hygiene",
+        ],
+        "outputs": [
+            "`orch/evaluation.plan.json`",
+            "better long-term workflow tuning",
+        ],
+    },
+]
 VALID_WORKFLOW_PRESETS = tuple(WORKFLOW_PRESET_DESCRIPTIONS.keys())
 VALID_DOMAIN_PRESETS = tuple(DOMAIN_PRESET_DESCRIPTIONS.keys())
 VALID_PRESETS = tuple(
@@ -286,6 +363,48 @@ def preset_summary(workflow: str, domain: str) -> str:
     workflow_text = WORKFLOW_PRESET_DESCRIPTIONS[workflow]
     domain_text = DOMAIN_PRESET_DESCRIPTIONS[domain]
     return f"Workflow `{workflow}`: {workflow_text} Domain `{domain}`: {domain_text}"
+
+
+def preset_priority_emphasis(workflow: str, domain: str) -> list[str]:
+    notes = {
+        "research": "Treat assumptions, evidence quality, and research verification as part of Priority 1.",
+        "engineering": "Treat maintainability, approval gates, and production-ready verification as part of Priority 1.",
+        "poc": "Keep imports and skills optional until the core experiment works and the direction is real.",
+        "generic": "Stay with the global order unless the repository has unusual domain-specific constraints.",
+        "web-app": "Move UI and user-path verification up in Priority 1 if the project is user-facing.",
+        "data-science": "Move experiment traceability, metrics, and reproducibility notes up in Priority 1.",
+        "infra": "Move blast-radius review, approvals, and explicit stop conditions to the front of Priority 1.",
+        "docs": "Move clarity, structure, and link/reference checks into Priority 1 verification.",
+        "multimedia": "Move provenance, review quality, and publication checks into Priority 1 verification.",
+    }
+    return [notes[workflow], notes[domain]]
+
+
+def render_priority_guidance(workflow: str, domain: str) -> list[str]:
+    lines = [
+        "## What To Fill In First",
+        "",
+        "If your project idea is still fuzzy, make the Priority 1 and 2 decisions first. You can leave later priorities rough or incomplete until after the first render.",
+        "",
+    ]
+    for entry in PRIORITY_GUIDANCE:
+        lines.extend(
+            [
+                f"### {entry['level']}: {entry['title']}",
+                "",
+                f"{entry['action']}. Decide:",
+                bullet_lines(entry["fields"], "Add the relevant fields."),
+                "",
+                "This mainly influences:",
+                bullet_lines(entry["outputs"], "Generated output."),
+                "",
+            ]
+        )
+
+    lines.append(f"### Preset Emphasis For `{compose_preset(workflow, domain)}`")
+    lines.append("")
+    lines.append(bullet_lines(preset_priority_emphasis(workflow, domain), "Use the default order."))
+    return lines
 
 
 def dedupe_items(items: list[dict], key: str) -> list[dict]:
@@ -1263,6 +1382,7 @@ def default_blueprint(repo_name: str, preset: str = DEFAULT_PRESET) -> str:
         "summary": "Render the targets to populate recommendations.",
         "items": [],
     }
+    priority_guidance = render_priority_guidance(workflow_name, domain_name)
     parts = [
         "# Init Orch",
         "",
@@ -1273,6 +1393,8 @@ def default_blueprint(repo_name: str, preset: str = DEFAULT_PRESET) -> str:
         f"Preset: `{preset_name}`. {preset_summary(workflow_name, domain_name)}",
         "",
         "Edit the JSON block below to describe the orchestration structure you want for this repository.",
+        "",
+        *priority_guidance,
         "",
         "<!-- Edit the JSON spec below. Everything else is generated from it. -->",
         "",

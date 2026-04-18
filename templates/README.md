@@ -12,6 +12,11 @@ The richer blueprint now supports:
 - import declarations for MCPs and external capability packs
 - explicit security warnings around powerful permissions
 
+It also follows an importance-first order:
+- start with project shape, verification, stop conditions, and permission boundaries
+- add roles and handoffs next
+- add imports, MCPs, skills, and evaluator refinements after the core workflow feels right
+
 Typical flow:
 
 1. Run `init-orch` in a new repository.

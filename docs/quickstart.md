@@ -40,6 +40,25 @@ Domains:
 
 The default preset is `engineering-generic`.
 
+## What to fill in first
+
+If you are not fully sure what the project should look like yet, use this order:
+
+1. Project shape and guardrails: preset, mission, success criteria, targets, stop conditions, verification, and `toolPolicy`.
+   This mainly affects `orch/permissions.policy.json`, Claude settings/rules, core workflow rules, and the quality of generated recommendations.
+2. Roles and collaboration shape: roles, handoffs, and repository rules.
+   This mainly affects `AGENTS.md` and Claude agent files.
+3. Capabilities and integrations: imports, MCPs, and target overrides.
+   This mainly affects imports manifests, `orch/imports.lock.json`, and Cursor MCP output when relevant.
+4. Reusable accelerators: skills.
+   This mainly affects Cursor and Claude skill files.
+5. Meta-iteration: evaluation and evaluator refinements.
+   This mainly affects `orch/evaluation.plan.json` and longer-term workflow tuning.
+
+For a first useful pass, steps 1 and 2 are enough. The rest can stay rough until after the first render.
+
+The chosen preset then changes what to stress inside that order. For example, `research-*` raises evidence and assumptions, `engineering-*` raises maintainability and approvals, and `data-science` raises reproducibility and experiment notes.
+
 If `init-orch.md` already exists, the preset is ignored and your existing blueprint is preserved.
 
 ## Minimal example
@@ -184,6 +203,14 @@ Keep the rest of the file as generated and just replace the spec block with some
   }
 }
 ```
+
+You do not need to perfect every field before rendering. A solid first pass is:
+
+- choose the preset
+- write the project mission and success criteria
+- define stop conditions, verification, and approvals
+- add the core roles
+- leave imports, skills, and evaluation lighter until the workflow feels real
 
 Then run:
 

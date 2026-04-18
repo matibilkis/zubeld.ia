@@ -83,6 +83,18 @@ The default preset is `engineering-generic`.
 
 Future direction: a later version could ask for a short free-form project description and recommend the closest workflow-domain preset automatically.
 
+What to fill in first:
+
+1. Start with project shape and guardrails: `preset`, mission, success criteria, targets, stop conditions, verification, and `toolPolicy`. These drive the most important generated files first, especially `orch/permissions.policy.json`, Claude settings/rules, and recommendation quality.
+2. Add roles, handoffs, and high-level rules next. These make `AGENTS.md` and Claude agent files actually useful.
+3. Add imports, MCPs, and target-specific overrides once the core workflow is clear. They are powerful, but they are optional and easier to review after the base orchestration makes sense.
+4. Add skills after that. They are accelerators, not prerequisites.
+5. Tune evaluation and evaluator refinements last. They improve the loop over time, but should not block first use.
+
+If the project is still fuzzy, getting through steps 1 and 2 is enough for a meaningful first render.
+
+Your chosen preset then shifts the emphasis inside that order. For example, `research-*` pushes evidence and assumptions earlier, `engineering-*` pushes maintainability and approvals earlier, and `data-science` pushes reproducibility and experiment notes earlier.
+
 Edit `init-orch.md` with:
 - your project mission,
 - roles such as planner / implementer / reviewer / evaluator,

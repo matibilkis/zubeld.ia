@@ -8,6 +8,75 @@ Preset: `engineering-generic`. Workflow `engineering`: Long-term delivery workfl
 
 Edit the JSON block below to describe the orchestration structure you want for this repository.
 
+## What To Fill In First
+
+If your project idea is still fuzzy, make the Priority 1 and 2 decisions first. You can leave later priorities rough or incomplete until after the first render.
+
+### Priority 1: Project shape and guardrails
+
+Start here. Decide:
+- `preset`, `workflowPreset`, `domainPreset`
+- `project.summary`, `project.mission`, `project.successCriteria`
+- `targets`
+- `workflow.stopConditions`
+- `verification`
+- `toolPolicy`
+
+This mainly influences:
+- `orch/permissions.policy.json`
+- core Cursor and Claude workflow rules
+- Claude settings and approval boundaries
+- recommendation quality
+
+### Priority 2: Roles and collaboration shape
+
+Add next. Decide:
+- `roles`
+- `handoffs`
+- `rules`
+
+This mainly influences:
+- `AGENTS.md`
+- Claude agent files
+- clear ownership and review flow
+
+### Priority 3: Capabilities and integrations
+
+Add once the core workflow is clear. Decide:
+- `imports`
+- MCP declarations
+- `targetOverrides`
+
+This mainly influences:
+- `orch/imports.lock.json`
+- Cursor and Claude import manifests
+- Cursor MCP configuration when relevant
+
+### Priority 4: Reusable accelerators
+
+Optional for now. Decide:
+- `skills`
+
+This mainly influences:
+- Cursor and Claude skill files
+- reusable workflows for repeated tasks
+
+### Priority 5: Meta-iteration
+
+Tune later. Decide:
+- `evaluation`
+- evaluator-role refinements
+- retrospective cadence and recommendation hygiene
+
+This mainly influences:
+- `orch/evaluation.plan.json`
+- better long-term workflow tuning
+
+### Preset Emphasis For `engineering-generic`
+
+- Treat maintainability, approval gates, and production-ready verification as part of Priority 1.
+- Stay with the global order unless the repository has unusual domain-specific constraints.
+
 <!-- Edit the JSON spec below. Everything else is generated from it. -->
 
 <!-- init-orch:spec:start -->
