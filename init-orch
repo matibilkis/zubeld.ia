@@ -24,17 +24,29 @@ RECOMMENDATION_MARKERS = (
 )
 VALID_TARGETS = {"cursor", "claude"}
 VALID_IMPORT_TYPES = {"mcp", "skillPack", "capabilityPack"}
-DEFAULT_PRESET = "engineering"
-PRESET_DESCRIPTIONS = {
-    "research": "Research-heavy projects with stronger planning, synthesis, and lower default edit risk.",
-    "engineering": "Balanced default for general software projects such as libraries, backends, and services.",
-    "web-app": "Frontend or full-stack product work with UI verification and browser-oriented workflow defaults.",
-    "poc": "Faster iteration with lighter process, while keeping explicit safety warnings.",
-    "multimedia": "Content and asset generation workflow with stronger review and external capability awareness.",
-    "infra": "Infrastructure and operations work with stricter approvals and plan-first execution.",
-    "docs": "Documentation-focused work with lighter verification and low-risk default permissions.",
+DEFAULT_WORKFLOW_PRESET = "engineering"
+DEFAULT_DOMAIN_PRESET = "generic"
+WORKFLOW_PRESET_DESCRIPTIONS = {
+    "research": "Academic or exploratory workflow with stronger synthesis, traceability, and evidence review.",
+    "engineering": "Long-term delivery workflow focused on maintainable, production-ready changes.",
+    "poc": "Rapid prototyping workflow optimized for quick validation before hardening or deeper research.",
 }
-VALID_PRESETS = tuple(PRESET_DESCRIPTIONS.keys())
+DOMAIN_PRESET_DESCRIPTIONS = {
+    "generic": "General software projects such as libraries, APIs, backends, and internal services.",
+    "web-app": "Frontend or full-stack product work with UI verification and browser-oriented workflow defaults.",
+    "data-science": "Notebook, data, and model workflows with stronger reproducibility and experiment review.",
+    "infra": "Infrastructure and operations work with explicit safety checks, blast-radius review, and approval gates.",
+    "docs": "Documentation-focused work with lighter implementation assumptions and stronger editorial review.",
+    "multimedia": "Content and asset generation workflows with explicit review, provenance, and publication checks.",
+}
+VALID_WORKFLOW_PRESETS = tuple(WORKFLOW_PRESET_DESCRIPTIONS.keys())
+VALID_DOMAIN_PRESETS = tuple(DOMAIN_PRESET_DESCRIPTIONS.keys())
+VALID_PRESETS = tuple(
+    f"{workflow}-{domain}"
+    for workflow in VALID_WORKFLOW_PRESETS
+    for domain in VALID_DOMAIN_PRESETS
+)
+DEFAULT_PRESET = f"{DEFAULT_WORKFLOW_PRESET}-{DEFAULT_DOMAIN_PRESET}"
 SECURITY_WARNING = (
     "Granting edit, write, delete, shell, network, or external tool access can expose "
     "code, secrets, and local data to irreversible changes or exfiltration. Use least-"
@@ -93,9 +105,9 @@ def parse_args() -> argparse.Namespace:
             """\
             Examples:
               init-orch
-              init-orch --preset research
+              init-orch --preset research-docs
               init-orch --init
-              init-orch --preset web-app --init
+              init-orch --preset engineering-web-app --init
               init-orch --cursor
               init-orch --claude
               init-orch --all
@@ -112,11 +124,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dir", default=".", help="Target repository root. Defaults to cwd.")
     parser.add_argument(
         "--preset",
-        choices=VALID_PRESETS,
+        type=parse_preset_arg,
         default=DEFAULT_PRESET,
         help=(
-            "Bootstrap preset for the first init-orch.md. "
-            f"Available: {', '.join(VALID_PRESETS)}. Defaults to {DEFAULT_PRESET}."
+            "Bootstrap preset for the first init-orch.md in workflow-domain form. "
+            f"Workflows: {', '.join(VALID_WORKFLOW_PRESETS)}. "
+            f"Domains: {', '.join(VALID_DOMAIN_PRESETS)}. "
+            f"Default: {DEFAULT_PRESET}."
         ),
     )
     parser.add_argument(
@@ -212,6 +226,68 @@ def normalize_string(value: object, fallback: str) -> str:
     return fallback
 
 
+def compose_preset(workflow: str, domain: str) -> str:
+    return f"{workflow}-{domain}"
+
+
+def split_preset_name(preset: str) -> tuple[str, str]:
+    workflow, separator, domain = preset.partition("-")
+    if not separator or not workflow or not domain:
+        raise ValueError(
+            "Preset must use `workflow-domain` form, for example `engineering-web-app`."
+        )
+    return workflow, domain
+
+
+def validate_preset_parts(workflow: str, domain: str) -> tuple[str, str]:
+    if workflow not in VALID_WORKFLOW_PRESETS:
+        raise ValueError(
+            "`workflowPreset` must be one of: " + ", ".join(sorted(VALID_WORKFLOW_PRESETS))
+        )
+    if domain not in VALID_DOMAIN_PRESETS:
+        raise ValueError(
+            "`domainPreset` must be one of: " + ", ".join(sorted(VALID_DOMAIN_PRESETS))
+        )
+    return workflow, domain
+
+
+def normalize_composed_preset(preset: str) -> tuple[str, str, str]:
+    workflow, domain = split_preset_name(normalize_string(preset, DEFAULT_PRESET))
+    workflow, domain = validate_preset_parts(workflow, domain)
+    return compose_preset(workflow, domain), workflow, domain
+
+
+def parse_preset_arg(value: str) -> str:
+    try:
+        preset, _, _ = normalize_composed_preset(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(str(exc)) from exc
+    return preset
+
+
+def resolve_preset_fields(spec: dict) -> tuple[str, str, str]:
+    workflow = normalize_string(spec.get("workflowPreset"), "")
+    domain = normalize_string(spec.get("domainPreset"), "")
+    preset = normalize_string(spec.get("preset"), "")
+
+    if workflow or domain:
+        if not workflow or not domain:
+            raise ValueError("`workflowPreset` and `domainPreset` must either both be set or both be omitted.")
+        workflow, domain = validate_preset_parts(workflow, domain)
+        return compose_preset(workflow, domain), workflow, domain
+
+    if preset:
+        return normalize_composed_preset(preset)
+
+    return DEFAULT_PRESET, DEFAULT_WORKFLOW_PRESET, DEFAULT_DOMAIN_PRESET
+
+
+def preset_summary(workflow: str, domain: str) -> str:
+    workflow_text = WORKFLOW_PRESET_DESCRIPTIONS[workflow]
+    domain_text = DOMAIN_PRESET_DESCRIPTIONS[domain]
+    return f"Workflow `{workflow}`: {workflow_text} Domain `{domain}`: {domain_text}"
+
+
 def dedupe_items(items: list[dict], key: str) -> list[dict]:
     seen = set()
     deduped = []
@@ -232,6 +308,12 @@ def deep_merge(base: object, overrides: object) -> object:
                 merged[key] = deep_merge(merged[key], value)
             else:
                 merged[key] = deepcopy(value)
+        return merged
+    if isinstance(base, list) and isinstance(overrides, list):
+        merged = deepcopy(base)
+        for item in overrides:
+            if item not in merged:
+                merged.append(deepcopy(item))
         return merged
     return deepcopy(overrides)
 
@@ -352,7 +434,7 @@ def normalize_import(index: int, raw_import: object, default_targets: list[str])
 
 def normalize_spec(raw_spec: object) -> dict:
     spec = require_dict(raw_spec, "spec")
-    preset_name = normalize_string(spec.get("preset"), DEFAULT_PRESET)
+    preset_name, workflow_preset, domain_preset = resolve_preset_fields(spec)
 
     project = require_dict(spec.get("project", {}), "project")
     summary = normalize_string(
@@ -534,6 +616,8 @@ def normalize_spec(raw_spec: object) -> dict:
     return {
         "version": int(spec.get("version", 1)),
         "preset": preset_name,
+        "workflowPreset": workflow_preset,
+        "domainPreset": domain_preset,
         "project": {
             "name": name,
             "summary": summary,
@@ -568,6 +652,8 @@ def base_blueprint_spec(repo_name: str) -> dict:
     return {
         "version": 2,
         "preset": DEFAULT_PRESET,
+        "workflowPreset": DEFAULT_WORKFLOW_PRESET,
+        "domainPreset": DEFAULT_DOMAIN_PRESET,
         "project": {
             "name": repo_name,
             "summary": "Describe what this repository does and what a successful change should optimize for.",
