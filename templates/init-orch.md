@@ -4,12 +4,17 @@
 
 > Security warning: Granting edit, write, delete, shell, network, or external tool access can expose code, secrets, and local data to irreversible changes or exfiltration. Use least-privilege defaults, require approval for high-impact actions, and review imported capabilities before enabling them.
 
+Preset: `engineering`. Balanced default for general software projects such as libraries, backends, and services.
+
 Edit the JSON block below to describe the orchestration structure you want for this repository.
+
+<!-- Edit the JSON spec below. Everything else is generated from it. -->
 
 <!-- init-orch:spec:start -->
 ```json
 {
   "version": 2,
+  "preset": "engineering",
   "project": {
     "name": "your-repo",
     "summary": "Describe what this repository does and what a successful change should optimize for.",
@@ -285,6 +290,7 @@ The generator will only rewrite the metadata and recommendations blocks below.
   "lastRenderedAt": null,
   "renderedTargets": [],
   "generatedFiles": [],
+  "bootstrapPreset": "engineering",
   "resolvedImports": []
 }
 ```

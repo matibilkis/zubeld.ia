@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from copy import deepcopy
 import json
 import re
 import sys
@@ -23,6 +24,17 @@ RECOMMENDATION_MARKERS = (
 )
 VALID_TARGETS = {"cursor", "claude"}
 VALID_IMPORT_TYPES = {"mcp", "skillPack", "capabilityPack"}
+DEFAULT_PRESET = "engineering"
+PRESET_DESCRIPTIONS = {
+    "research": "Research-heavy projects with stronger planning, synthesis, and lower default edit risk.",
+    "engineering": "Balanced default for general software projects such as libraries, backends, and services.",
+    "web-app": "Frontend or full-stack product work with UI verification and browser-oriented workflow defaults.",
+    "poc": "Faster iteration with lighter process, while keeping explicit safety warnings.",
+    "multimedia": "Content and asset generation workflow with stronger review and external capability awareness.",
+    "infra": "Infrastructure and operations work with stricter approvals and plan-first execution.",
+    "docs": "Documentation-focused work with lighter verification and low-risk default permissions.",
+}
+VALID_PRESETS = tuple(PRESET_DESCRIPTIONS.keys())
 SECURITY_WARNING = (
     "Granting edit, write, delete, shell, network, or external tool access can expose "
     "code, secrets, and local data to irreversible changes or exfiltration. Use least-"
@@ -81,7 +93,9 @@ def parse_args() -> argparse.Namespace:
             """\
             Examples:
               init-orch
+              init-orch --preset research
               init-orch --init
+              init-orch --preset web-app --init
               init-orch --cursor
               init-orch --claude
               init-orch --all
@@ -90,11 +104,21 @@ def parse_args() -> argparse.Namespace:
             Notes:
               - With no target flags, init-orch creates init-orch.md if needed.
               - When render flags are passed and init-orch.md does not exist, it is created first.
+              - Presets only affect the first init-orch.md bootstrap.
               - Edit init-orch.md, then rerun init-orch with --cursor, --claude, or --all.
             """
         ),
     )
     parser.add_argument("--dir", default=".", help="Target repository root. Defaults to cwd.")
+    parser.add_argument(
+        "--preset",
+        choices=VALID_PRESETS,
+        default=DEFAULT_PRESET,
+        help=(
+            "Bootstrap preset for the first init-orch.md. "
+            f"Available: {', '.join(VALID_PRESETS)}. Defaults to {DEFAULT_PRESET}."
+        ),
+    )
     parser.add_argument(
         "--init",
         action="store_true",
@@ -198,6 +222,18 @@ def dedupe_items(items: list[dict], key: str) -> list[dict]:
         seen.add(marker)
         deduped.append(item)
     return deduped
+
+
+def deep_merge(base: object, overrides: object) -> object:
+    if isinstance(base, dict) and isinstance(overrides, dict):
+        merged = {key: deepcopy(value) for key, value in base.items()}
+        for key, value in overrides.items():
+            if key in merged:
+                merged[key] = deep_merge(merged[key], value)
+            else:
+                merged[key] = deepcopy(value)
+        return merged
+    return deepcopy(overrides)
 
 
 def numbered_lines(items: list[str], fallback: str) -> str:
@@ -316,6 +352,7 @@ def normalize_import(index: int, raw_import: object, default_targets: list[str])
 
 def normalize_spec(raw_spec: object) -> dict:
     spec = require_dict(raw_spec, "spec")
+    preset_name = normalize_string(spec.get("preset"), DEFAULT_PRESET)
 
     project = require_dict(spec.get("project", {}), "project")
     summary = normalize_string(
@@ -496,6 +533,7 @@ def normalize_spec(raw_spec: object) -> dict:
 
     return {
         "version": int(spec.get("version", 1)),
+        "preset": preset_name,
         "project": {
             "name": name,
             "summary": summary,
@@ -526,9 +564,10 @@ def normalize_spec(raw_spec: object) -> dict:
     }
 
 
-def default_blueprint(repo_name: str) -> str:
-    spec = {
+def base_blueprint_spec(repo_name: str) -> dict:
+    return {
         "version": 2,
+        "preset": DEFAULT_PRESET,
         "project": {
             "name": repo_name,
             "summary": "Describe what this repository does and what a successful change should optimize for.",
@@ -692,12 +731,382 @@ def default_blueprint(repo_name: str) -> str:
             "settingsLocalExample": DEFAULT_CLAUDE_LOCAL,
         },
     }
+
+
+def preset_overrides(preset: str) -> dict:
+    if preset == "research":
+        return {
+            "preset": "research",
+            "project": {
+                "summary": "Research-oriented project. Optimize for clarity, synthesis, references, and careful iteration.",
+                "mission": "Help humans explore, synthesize, and refine ideas without over-committing to premature implementation.",
+                "style": "research",
+                "successCriteria": [
+                    "Capture findings and assumptions clearly.",
+                    "Make sources and evidence easy to review.",
+                    "Avoid unnecessary code changes before the direction is validated.",
+                ],
+                "riskPosture": "cautious",
+                "maturity": "exploring",
+            },
+            "rules": [
+                "Separate findings, hypotheses, and next steps clearly.",
+                "Ask before broad implementation or irreversible changes.",
+                "Prefer traceable sources and explicit assumptions.",
+            ],
+            "workflow": {
+                "planningTrigger": "Plan before any non-trivial synthesis, literature review, or implementation branch.",
+                "implementationFocus": "Prefer notes, prototypes, or summaries until the direction is justified.",
+                "reviewChecklist": [
+                    "Check whether findings are supported by evidence.",
+                    "Check whether open questions are explicit.",
+                ],
+                "escalation": [
+                    "Escalate when sources conflict or the scope shifts.",
+                    "Escalate before implementation that changes repo direction.",
+                ],
+                "stopConditions": [
+                    "Stop when evidence is weak or missing.",
+                    "Stop when implementation would outrun the research goal.",
+                ],
+            },
+            "verification": [
+                {
+                    "changeType": "research",
+                    "required": ["Cite sources or explain why the conclusion is based on local context only."],
+                },
+                {
+                    "changeType": "notes",
+                    "required": ["Summarize findings, assumptions, and recommended next steps."],
+                },
+            ],
+            "skills": [
+                {
+                    "id": "research-brief",
+                    "when": "Use when exploring a topic, validating an idea, or comparing approaches.",
+                    "steps": [
+                        "Clarify the research question.",
+                        "Gather and compare the strongest available evidence.",
+                        "Summarize findings, caveats, and next actions.",
+                    ],
+                    "outputs": ["Research brief", "Open questions"],
+                }
+            ],
+            "toolPolicy": {
+                "allow": ["Read(*)", "Glob(*)", "Grep(*)", "WebFetch", "WebSearch"],
+                "risky": ["Edit(*)", "Write(*)"],
+                "deny": ["Delete(*)", "Bash(*)", "Edit(.env*)"],
+                "requiresApproval": ["Edit(*)", "Write(*)"],
+            },
+            "evaluation": {
+                "signals": [
+                    "Humans restate the research question repeatedly.",
+                    "Agents blur evidence and speculation.",
+                    "Notes are generated without clear next steps.",
+                ],
+                "goals": [
+                    "Improve synthesis quality.",
+                    "Keep the exploration process auditable.",
+                ],
+            },
+            "imports": [],
+        }
+    if preset == "web-app":
+        return {
+            "preset": "web-app",
+            "project": {
+                "summary": "Web application project. Optimize for shipping UI and product changes safely with clear verification.",
+                "mission": "Let agents accelerate product development while keeping UI quality, behavior, and safety reviewable.",
+                "style": "product",
+                "successCriteria": [
+                    "Small reviewable UI and product changes.",
+                    "Focused verification for behavior and UX.",
+                    "Clear separation between implementation work and polish.",
+                ],
+                "riskPosture": "moderate",
+                "maturity": "growing",
+            },
+            "workflow": {
+                "planningTrigger": "Plan before changes that span frontend, backend, or product behavior.",
+                "implementationFocus": "Prefer the smallest slice that delivers a visible product improvement.",
+                "reviewChecklist": [
+                    "Check behavior in the relevant UI path.",
+                    "Check for obvious UX or accessibility regressions.",
+                ],
+            },
+            "verification": [
+                {
+                    "changeType": "ui",
+                    "required": ["Verify the main user path and mention any manual checks performed."],
+                },
+                {
+                    "changeType": "api",
+                    "required": ["Run the most relevant tests or explain what was manually validated."],
+                },
+            ],
+            "skills": [
+                {
+                    "id": "ui-change-plan",
+                    "when": "Use before multi-file web-app changes or visible UI work.",
+                    "steps": [
+                        "Clarify the user-facing goal.",
+                        "Identify the smallest implementation slice.",
+                        "List the UI and behavior checks to run.",
+                    ],
+                    "outputs": ["UI change plan", "Verification checklist"],
+                }
+            ],
+            "imports": [
+                {
+                    "id": "ui-ux-pro-max",
+                    "type": "skillPack",
+                    "source": "https://ui-ux-pro-max-skill.nextlevelbuilder.io/",
+                    "version": "reference",
+                    "targets": ["cursor", "claude"],
+                    "note": "Optional design-oriented capability pack for UI work.",
+                    "trust": {"level": "review-required", "reviewedByHuman": False},
+                    "provides": {
+                        "notes": ["Review the pack before relying on it in production."],
+                        "skills": [],
+                    },
+                },
+                {
+                    "id": "browser-mcp",
+                    "type": "mcp",
+                    "source": "npm:browser-mcp-server",
+                    "version": "latest",
+                    "targets": ["cursor"],
+                    "note": "Placeholder browser-oriented MCP for UI validation.",
+                    "trust": {"level": "review-required", "reviewedByHuman": False},
+                    "transport": {
+                        "type": "stdio",
+                        "command": "npx",
+                        "args": ["-y", "browser-mcp-server"],
+                        "env": {},
+                    },
+                    "provides": {"notes": ["Review browser automation scope before enabling."], "skills": []},
+                },
+            ],
+        }
+    if preset == "poc":
+        return {
+            "preset": "poc",
+            "project": {
+                "summary": "Proof-of-concept project. Optimize for validating an idea quickly without losing basic safety.",
+                "mission": "Move quickly enough to validate the concept while keeping the experiment understandable and easy to discard.",
+                "style": "fast-iteration",
+                "successCriteria": [
+                    "Validate the core idea quickly.",
+                    "Keep the experiment small and easy to reset.",
+                    "Document what worked and what failed.",
+                ],
+                "riskPosture": "fast",
+                "maturity": "prototype",
+            },
+            "rules": [
+                "Prefer speed, but keep changes reviewable.",
+                "Document shortcuts and unresolved risks explicitly.",
+                "Ask before touching secrets or production-like systems.",
+            ],
+            "workflow": {
+                "implementationFocus": "Prefer the fastest small experiment that can prove or disprove the idea.",
+                "reviewChecklist": [
+                    "Check whether the prototype answered the main question.",
+                    "List shortcuts or debt introduced by the experiment.",
+                ],
+            },
+            "verification": [
+                {
+                    "changeType": "prototype",
+                    "required": ["Run a smoke check or explain how the PoC was validated."],
+                }
+            ],
+            "toolPolicy": {
+                "allow": ["Read(*)", "Glob(*)", "Grep(*)", "WebFetch", "WebSearch"],
+                "risky": ["Edit(*)", "Write(*)", "Bash(*)"],
+                "deny": ["Bash(rm -rf *)", "Bash(sudo *)", "Edit(.env*)"],
+                "requiresApproval": ["Bash(*)", "Edit(.env*)", "Delete(*)"],
+            },
+            "evaluation": {
+                "goals": [
+                    "Reduce friction during rapid experimentation.",
+                    "Make it obvious when the prototype should be hardened or discarded.",
+                ]
+            },
+            "imports": [],
+        }
+    if preset == "multimedia":
+        return {
+            "preset": "multimedia",
+            "project": {
+                "summary": "Multimedia content generation project. Optimize for repeatable asset production, review, and publication readiness.",
+                "mission": "Use agents to assist content creation while keeping quality, licensing, and review steps explicit.",
+                "style": "creative",
+                "successCriteria": [
+                    "Make content generation repeatable.",
+                    "Keep approval and review steps explicit.",
+                    "Track external assets and capability packs clearly.",
+                ],
+                "riskPosture": "moderate",
+                "maturity": "growing",
+            },
+            "rules": [
+                "Track external assets and generated content sources explicitly.",
+                "Keep review steps for publication quality and rights clear.",
+                "Ask before broad destructive changes or tool access.",
+            ],
+            "verification": [
+                {
+                    "changeType": "content",
+                    "required": ["Review output quality and note any manual fixes or caveats."],
+                },
+                {
+                    "changeType": "assets",
+                    "required": ["Check asset provenance, naming, and output location."],
+                },
+            ],
+            "skills": [
+                {
+                    "id": "content-review",
+                    "when": "Use before publishing generated multimedia output.",
+                    "steps": [
+                        "Review the generated output against the brief.",
+                        "Check quality, consistency, and obvious rights issues.",
+                        "Summarize what still needs human approval.",
+                    ],
+                    "outputs": ["Review summary", "Publication blockers"],
+                }
+            ],
+            "imports": [
+                {
+                    "id": "paperclip",
+                    "type": "capabilityPack",
+                    "source": "https://paperclip.ing/",
+                    "version": "reference",
+                    "targets": ["cursor", "claude"],
+                    "note": "Reference for orchestrating multi-role creative workflows.",
+                    "trust": {"level": "review-required", "reviewedByHuman": False},
+                    "provides": {
+                        "notes": ["Review governance and coordination ideas before adoption."],
+                        "skills": [],
+                    },
+                }
+            ],
+        }
+    if preset == "infra":
+        return {
+            "preset": "infra",
+            "project": {
+                "summary": "Infrastructure or operations project. Optimize for cautious planning, clear diffs, and explicit approval gates.",
+                "mission": "Reduce operational risk by keeping infra changes deliberate, reviewable, and easy to stop.",
+                "style": "ops",
+                "successCriteria": [
+                    "Prefer diff and plan over direct changes.",
+                    "Keep operational risk and blast radius explicit.",
+                    "Require human approval for high-impact actions.",
+                ],
+                "riskPosture": "strict",
+                "maturity": "production",
+            },
+            "rules": [
+                "Never apply destructive infra changes without human approval.",
+                "Prefer read, diff, or plan actions before write or apply actions.",
+                "Document blast radius and rollback considerations.",
+            ],
+            "workflow": {
+                "planningTrigger": "Plan before any infra, deployment, or environment change.",
+                "implementationFocus": "Prefer plan, diff, inspect, and validation steps before mutation.",
+                "reviewChecklist": [
+                    "Check blast radius and rollback path.",
+                    "Check whether the change touches production or shared environments.",
+                ],
+                "escalation": [
+                    "Escalate before any apply, deploy, or environment mutation.",
+                    "Escalate when the blast radius is unclear.",
+                ],
+                "stopConditions": [
+                    "Stop when the target environment is unclear.",
+                    "Stop before destructive or production-facing actions without approval.",
+                ],
+            },
+            "verification": [
+                {
+                    "changeType": "infra",
+                    "required": ["Run a plan, diff, or dry-run and summarize the result before apply."],
+                }
+            ],
+            "toolPolicy": {
+                "allow": ["Read(*)", "Glob(*)", "Grep(*)", "WebFetch", "WebSearch"],
+                "risky": ["Bash(terraform plan*)", "Bash(kubectl diff*)", "Write(*)"],
+                "deny": ["Delete(*)", "Bash(terraform apply*)", "Bash(kubectl delete*)", "Bash(sudo *)"],
+                "requiresApproval": ["Write(*)", "Bash(*)", "Edit(.env*)", "Delete(*)"],
+            },
+            "imports": [],
+            "evaluation": {
+                "signals": [
+                    "Agents attempt mutation too early.",
+                    "Humans repeatedly intervene for approval or blast-radius review.",
+                ],
+                "goals": [
+                    "Shift more work into safe planning and inspection.",
+                    "Make approval boundaries explicit.",
+                ],
+            },
+        }
+    if preset == "docs":
+        return {
+            "preset": "docs",
+            "project": {
+                "summary": "Documentation-focused project. Optimize for clarity, consistency, and low-risk iteration.",
+                "mission": "Keep documentation useful, coherent, and easy to update while minimizing unnecessary operational risk.",
+                "style": "documentation",
+                "successCriteria": [
+                    "Improve clarity and structure.",
+                    "Keep updates easy to review.",
+                    "Avoid overcomplicating low-risk documentation work.",
+                ],
+                "riskPosture": "low",
+                "maturity": "maintained",
+            },
+            "verification": [
+                {
+                    "changeType": "docs",
+                    "required": ["Check links, references, and obvious formatting issues where possible."],
+                }
+            ],
+            "toolPolicy": {
+                "allow": ["Read(*)", "Glob(*)", "Grep(*)", "WebFetch", "WebSearch"],
+                "risky": ["Edit(*)", "Write(*)"],
+                "deny": ["Delete(*)", "Bash(sudo *)", "Edit(.env*)"],
+                "requiresApproval": ["Delete(*)", "Bash(*)", "Edit(.env*)"],
+            },
+            "imports": [],
+            "evaluation": {
+                "goals": [
+                    "Reduce repetitive doc-editing friction.",
+                    "Keep guidance concise and current.",
+                ]
+            },
+        }
+    return {}
+
+
+def build_preset_spec(repo_name: str, preset: str) -> dict:
+    preset_name = preset if preset in VALID_PRESETS else DEFAULT_PRESET
+    spec = base_blueprint_spec(repo_name)
+    return deep_merge(spec, preset_overrides(preset_name))
+
+
+def default_blueprint(repo_name: str, preset: str = DEFAULT_PRESET) -> str:
+    preset_name = preset if preset in VALID_PRESETS else DEFAULT_PRESET
+    spec = build_preset_spec(repo_name, preset_name)
     generated = {
         "version": 2,
         "lastRenderedAt": None,
         "renderedTargets": [],
         "generatedFiles": [],
         "resolvedImports": [],
+        "bootstrapPreset": preset_name,
     }
     recommendations = {
         "version": 1,
@@ -712,7 +1121,11 @@ def default_blueprint(repo_name: str) -> str:
 
         > Security warning: {SECURITY_WARNING}
 
+        Preset: `{preset_name}`. {PRESET_DESCRIPTIONS[preset_name]}
+
         Edit the JSON block below to describe the orchestration structure you want for this repository.
+
+        <!-- Edit the JSON spec below. Everything else is generated from it. -->
 
         {json_block(SPEC_MARKERS, spec)}
 
@@ -732,11 +1145,11 @@ def default_blueprint(repo_name: str) -> str:
     ).rstrip() + "\n"
 
 
-def bootstrap_blueprint(target_dir: Path) -> tuple[Path, bool]:
+def bootstrap_blueprint(target_dir: Path, preset: str = DEFAULT_PRESET) -> tuple[Path, bool]:
     blueprint_path = target_dir / "init-orch.md"
     if blueprint_path.exists():
         return blueprint_path, False
-    write_text(blueprint_path, default_blueprint(target_dir.name or "new-repo"))
+    write_text(blueprint_path, default_blueprint(target_dir.name or "new-repo", preset))
     return blueprint_path, True
 
 
@@ -1470,6 +1883,7 @@ def render_targets(target_dir: Path, selected_targets: list[str], blueprint_path
         "lastRenderedAt": datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
         "renderedTargets": selected_targets,
         "generatedFiles": sorted(str(path.relative_to(target_dir)) for path in generated_paths),
+        "bootstrapPreset": spec["preset"],
         "resolvedImports": [
             {
                 "id": item["id"],
@@ -1498,19 +1912,22 @@ def collect_selected_targets(args: argparse.Namespace) -> list[str]:
 
 def main() -> int:
     args = parse_args()
+    preset_explicit = "--preset" in sys.argv
     target_dir = Path(args.dir).expanduser().resolve()
     if not target_dir.is_dir():
         print(f"Error: target directory does not exist: {target_dir}", file=sys.stderr)
         return 1
 
     selected_targets = collect_selected_targets(args)
-    blueprint_path, created = bootstrap_blueprint(target_dir)
+    blueprint_path, created = bootstrap_blueprint(target_dir, args.preset)
 
     if created:
-        print(f"Created {blueprint_path}")
+        print(f"Created {blueprint_path} using preset '{args.preset}'.")
         if selected_targets:
             print("Edit init-orch.md to describe your orchestration design, then rerun init-orch.")
             return 0
+    elif preset_explicit:
+        print(f"Preset '{args.preset}' ignored because init-orch.md already exists.")
 
     if not selected_targets:
         if args.init or created:

@@ -9,6 +9,28 @@
 
 > Security warning: enabling edit, write, delete, shell, network, or external tool access can expose code, secrets, and local data to irreversible changes or exfiltration. Start with least privilege and require approval for high-impact actions.
 
+## Presets
+
+You can bootstrap the first `init-orch.md` from a preset:
+
+```bash
+init-orch --preset research
+```
+
+Available presets:
+
+| Preset | Best for | Bias |
+|------|------|------|
+| `research` | exploration, synthesis, studies | stronger planning, lower edit risk |
+| `engineering` | general software projects | balanced default |
+| `web-app` | frontend or full-stack apps | UI and behavior verification |
+| `poc` | fast experiments | lighter process, faster iteration |
+| `multimedia` | content and asset workflows | stronger review and external pack awareness |
+| `infra` | infrastructure or ops work | stricter approvals and plan-first behavior |
+| `docs` | documentation-focused repos | low-risk editing and lighter verification |
+
+If `init-orch.md` already exists, the preset is ignored and your existing blueprint is preserved.
+
 ## Minimal example
 
 Keep the rest of the file as generated and just replace the spec block with something like:
@@ -16,6 +38,7 @@ Keep the rest of the file as generated and just replace the spec block with some
 ```json
 {
   "version": 2,
+  "preset": "engineering",
   "project": {
     "name": "api-service",
     "summary": "Internal API service. Optimize for safe edits, clear plans, and focused verification.",
@@ -167,3 +190,16 @@ That will regenerate:
 - `.claude/settings.json`, `.claude/settings.local.json.example`, `.claude/rules/*`, `.claude/agents/*`, `.claude/skills/*`, and `.claude/imports/manifest.json`
 
 Iterate by editing `init-orch.md`, re-running `init-orch --all`, and then deciding whether the generated recommendations should be folded back into the spec.
+
+## Practical preset example
+
+For a frontend-heavy app:
+
+```bash
+mkdir my-web-app && cd my-web-app
+init-orch --preset web-app
+# review and fine-tune init-orch.md
+init-orch --all
+```
+
+That gives you a better first draft for UI-oriented workflow, verification, and imports than the generic default.
