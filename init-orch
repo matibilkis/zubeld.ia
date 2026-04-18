@@ -1263,36 +1263,35 @@ def default_blueprint(repo_name: str, preset: str = DEFAULT_PRESET) -> str:
         "summary": "Render the targets to populate recommendations.",
         "items": [],
     }
-    return textwrap.dedent(
-        f"""\
-        # Init Orch
-
-        `init-orch.md` is the only high-level file you should edit directly. The generated files under `.cursor/`, `.claude/`, `AGENTS.md`, and `orch/` are derived outputs.
-
-        > Security warning: {SECURITY_WARNING}
-
-        Preset: `{preset_name}`. {preset_summary(workflow_name, domain_name)}
-
-        Edit the JSON block below to describe the orchestration structure you want for this repository.
-
-        <!-- Edit the JSON spec below. Everything else is generated from it. -->
-
-        {json_block(SPEC_MARKERS, spec)}
-
-        ## Workflow
-
-        1. Fill in the spec block above.
-        2. Run `init-orch --cursor`, `init-orch --claude`, or `init-orch --all`.
-        3. Re-run the command whenever you change the orchestration design.
-        4. Review the generated recommendations block and decide which changes belong in the spec.
-
-        The generator will only rewrite the metadata and recommendations blocks below.
-
-        {json_block(GENERATED_MARKERS, generated)}
-
-        {json_block(RECOMMENDATION_MARKERS, recommendations)}
-        """
-    ).rstrip() + "\n"
+    parts = [
+        "# Init Orch",
+        "",
+        "`init-orch.md` is the only high-level file you should edit directly. The generated files under `.cursor/`, `.claude/`, `AGENTS.md`, and `orch/` are derived outputs.",
+        "",
+        f"> Security warning: {SECURITY_WARNING}",
+        "",
+        f"Preset: `{preset_name}`. {preset_summary(workflow_name, domain_name)}",
+        "",
+        "Edit the JSON block below to describe the orchestration structure you want for this repository.",
+        "",
+        "<!-- Edit the JSON spec below. Everything else is generated from it. -->",
+        "",
+        json_block(SPEC_MARKERS, spec),
+        "",
+        "## Workflow",
+        "",
+        "1. Fill in the spec block above.",
+        "2. Run `init-orch --cursor`, `init-orch --claude`, or `init-orch --all`.",
+        "3. Re-run the command whenever you change the orchestration design.",
+        "4. Review the generated recommendations block and decide which changes belong in the spec.",
+        "",
+        "The generator will only rewrite the metadata and recommendations blocks below.",
+        "",
+        json_block(GENERATED_MARKERS, generated),
+        "",
+        json_block(RECOMMENDATION_MARKERS, recommendations),
+    ]
+    return "\n".join(parts).rstrip() + "\n"
 
 
 def bootstrap_blueprint(target_dir: Path, preset: str = DEFAULT_PRESET) -> tuple[Path, bool]:
