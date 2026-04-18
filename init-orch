@@ -39,6 +39,16 @@ DOMAIN_PRESET_DESCRIPTIONS = {
     "docs": "Documentation-focused work with lighter implementation assumptions and stronger editorial review.",
     "multimedia": "Content and asset generation workflows with explicit review, provenance, and publication checks.",
 }
+TARGET_DESCRIPTIONS = {
+    "cursor": "Render Cursor rules, skills, imports, and MCP configuration.",
+    "claude": "Render Claude settings, agents, rules, skills, and imports.",
+}
+RISK_POSTURE_DESCRIPTIONS = {
+    "low": "Lighter guardrails for trusted, lower-risk repositories.",
+    "moderate": "Balanced default for most solo projects.",
+    "high": "Stronger approvals and tighter permissions for riskier changes.",
+    "strict": "Most cautious option for sensitive or operational repositories.",
+}
 PRIORITY_GUIDANCE = [
     {
         "level": "Priority 1",
@@ -176,7 +186,7 @@ DEFAULT_CLAUDE_LOCAL = {
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Bootstrap and render orchestration files from init-orch.md.",
+        description="Bootstrap, compile, and review orchestration files from init-orch.md.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=textwrap.dedent(
             """\
@@ -188,13 +198,14 @@ def parse_args() -> argparse.Namespace:
               init-orch --cursor
               init-orch --claude
               init-orch --all
+              init-orch --review
               init-orch --dir /path/to/repo --all
 
             Notes:
-              - With no target flags, init-orch creates init-orch.md if needed.
-              - When render flags are passed and init-orch.md does not exist, it is created first.
-              - Presets only affect the first init-orch.md bootstrap.
-              - Edit init-orch.md, then rerun init-orch with --cursor, --claude, or --all.
+              - On first run in a terminal, init-orch can guide you through a short bootstrap flow.
+              - init-orch.md is the only high-level file you edit directly.
+              - Rendering compiles that spec into tool-specific files.
+              - Review mode prints practical recommendations without rewriting your setup.
             """
         ),
     )
@@ -213,11 +224,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--init",
         action="store_true",
-        help="Create init-orch.md if missing, without rendering tool-specific files.",
+        help="Bootstrap init-orch.md if missing, without rendering tool-specific files.",
     )
     parser.add_argument("--cursor", action="store_true", help="Render Cursor scaffolding.")
     parser.add_argument("--claude", action="store_true", help="Render Claude scaffolding.")
     parser.add_argument("--all", action="store_true", help="Render both Cursor and Claude.")
+    parser.add_argument(
+        "--review",
+        action="store_true",
+        help="Print practical setup recommendations without rewriting files.",
+    )
+    interactive_group = parser.add_mutually_exclusive_group()
+    interactive_group.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Force the guided bootstrap flow when creating init-orch.md.",
+    )
+    interactive_group.add_argument(
+        "--no-interactive",
+        action="store_true",
+        help="Skip the guided bootstrap flow and use direct preset bootstrap behavior.",
+    )
     parser.add_argument(
         "legacy_mode",
         nargs="?",
