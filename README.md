@@ -16,14 +16,14 @@ Run `init-orch` in a new repository and it can guide you through a short interac
 init-orch
 ```
 
-The bootstrap flow is intentionally small. It asks for:
+The bootstrap flow is intentionally small. It asks only for:
 
 - a `workflow-domain` preset
 - a short project summary
 - target platforms
 - a risk posture
 
-It then creates a ready-to-edit `init-orch.md` and tells you what to fill in next.
+It then creates a ready-to-edit `init-orch.md` and points you to the next fields worth refining.
 
 If you already know what you want, you can skip the prompts and bootstrap directly:
 
@@ -58,7 +58,7 @@ When the setup feels stale or off, ask for a deliberate review:
 init-orch --review
 ```
 
-This prints practical recommendations without rewriting files. The goal is not an always-on orchestration brain. The goal is a lightweight review loop that helps you tighten the setup when it matters.
+This prints a short snapshot, immediate actions, and practical setup recommendations without rewriting files. The goal is not an always-on orchestration brain. The goal is a lightweight review loop that helps you tighten the setup when it matters.
 
 ## Why This Is Useful
 

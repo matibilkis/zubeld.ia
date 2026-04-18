@@ -18,7 +18,7 @@ In a new repository, run:
 init-orch
 ```
 
-In a terminal, `init-orch` can guide you through a short bootstrap flow. It asks for:
+In a terminal, `init-orch` can guide you through a short bootstrap flow. It asks only for:
 
 - a `workflow-domain` preset
 - a short project summary
@@ -96,7 +96,7 @@ When the setup feels stale, run:
 init-orch --review
 ```
 
-This prints practical recommendations without rewriting files. Treat it as an opt-in review loop, not an autonomous control plane.
+This prints a short snapshot, immediate actions, and setup recommendations without rewriting files. Treat it as an opt-in review loop, not an autonomous control plane.
 
 ## Minimal example
 

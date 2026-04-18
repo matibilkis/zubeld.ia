@@ -513,18 +513,18 @@ def run_guided_bootstrap(
     repo_name = target_dir.name or "new-repo"
     _, default_workflow, default_domain = normalize_composed_preset(preset)
     print("Zubeldia bootstrap")
-    print("Estimated confirmation time: about 2 minutes.")
-    print("You will choose a preset and a few practical defaults. You can fine-tune init-orch.md later.")
+    print("Estimated setup time: about 2 minutes.")
+    print("This creates a practical first draft for the repo. You can refine init-orch.md later.")
     print("")
 
     workflow = prompt_choice(
-        "Which workflow matches this repository best?",
+        "Pick the workflow that best matches the repo",
         [(value, WORKFLOW_PRESET_DESCRIPTIONS[value]) for value in VALID_WORKFLOW_PRESETS],
         default_workflow,
     )
     print("")
     domain = prompt_choice(
-        "Which domain is the best fit?",
+        "Pick the domain that best fits the repo",
         [(value, DOMAIN_PRESET_DESCRIPTIONS[value]) for value in VALID_DOMAIN_PRESETS],
         default_domain,
     )
@@ -537,18 +537,19 @@ def run_guided_bootstrap(
     targets = prompt_targets(sorted(VALID_TARGETS))
     print("")
     risk_posture = prompt_choice(
-        "How cautious should the setup be?",
+        "Choose the default risk posture",
         [(value, RISK_POSTURE_DESCRIPTIONS[value]) for value in ("low", "moderate", "high", "strict")],
         "moderate",
     )
     print("")
 
     chosen_preset = compose_preset(workflow, domain)
-    print("About to create init-orch.md with:")
+    print("About to create the first draft:")
     print(f"- preset: {chosen_preset}")
     print(f"- targets: {', '.join(targets)}")
     print(f"- risk posture: {risk_posture}")
     print(f"- summary: {summary}")
+    print("- editable source of truth: init-orch.md")
     if not prompt_yes_no("Write the bootstrap file now?", default=True):
         print("Bootstrap cancelled. No files were written.")
         return None, False, chosen_preset, targets
@@ -659,14 +660,15 @@ def format_review_report(
     lines = [
         f"Zubeldia review for {target_dir}",
         "",
-        f"Preset: {spec['preset']}",
-        f"Targets in spec: {', '.join(spec['targets']) if spec['targets'] else 'none'}",
-        f"Last render: {last_rendered}",
-        "Last rendered targets: " + (", ".join(rendered_targets) if rendered_targets else "none"),
+        "Snapshot:",
+        f"- preset: {spec['preset']}",
+        f"- targets in spec: {', '.join(spec['targets']) if spec['targets'] else 'none'}",
+        f"- last render: {last_rendered}",
+        "- last rendered targets: " + (", ".join(rendered_targets) if rendered_targets else "none"),
     ]
 
     if context_items:
-        lines.extend(["", "Practical checks:"])
+        lines.extend(["", "Immediate actions:"])
         for index, item in enumerate(context_items, start=1):
             lines.extend(
                 [
@@ -675,9 +677,11 @@ def format_review_report(
                     f"   Why: {item['rationale']}",
                 ]
             )
+    else:
+        lines.extend(["", "Immediate actions:", "Nothing urgent."])
 
     if recommendations["items"]:
-        lines.extend(["", "Recommendations:"])
+        lines.extend(["", "Setup recommendations:"])
         for index, item in enumerate(recommendations["items"], start=1):
             lines.extend(
                 [
@@ -687,12 +691,12 @@ def format_review_report(
                 ]
             )
     else:
-        lines.extend(["", "Recommendations:", "No major recommendations right now."])
+        lines.extend(["", "Setup recommendations:", "No major recommendations right now."])
 
     lines.extend(
         [
             "",
-            "Next step:",
+            "Suggested next step:",
             "Edit init-orch.md if something above should become part of the canonical setup, then re-run init-orch.",
         ]
     )
@@ -2556,11 +2560,11 @@ def main() -> int:
                 if len(effective_targets) == 1
                 else "init-orch --all"
             )
-            print("Start by refining mission, success criteria, verification, and roles in init-orch.md.")
-            print(f"When you are ready, run {next_render} to compile the first target files.")
-            print("Use init-orch --review later when you want practical setup recommendations.")
+            print("Start with mission, success criteria, verification, and roles in init-orch.md.")
+            print(f"Then run {next_render} to compile the first target files.")
+            print("Later, run init-orch --review when you want practical setup feedback.")
         if selected_targets:
-            print("Edit init-orch.md to describe your orchestration design, then rerun init-orch.")
+            print("Refine init-orch.md, then rerun init-orch to compile the target files.")
             return 0
     elif preset_explicit:
         print(f"Preset '{args.preset}' ignored because init-orch.md already exists.")
@@ -2571,7 +2575,7 @@ def main() -> int:
         if args.init or created:
             print("init-orch.md is ready. Fill it in, then rerun with --cursor, --claude, or --all.")
             return 0
-        print("Nothing to render. Use --cursor, --claude, or --all after editing init-orch.md.")
+        print("Nothing to render yet. Edit init-orch.md, then use --cursor, --claude, or --all.")
         return 0
 
     try:
