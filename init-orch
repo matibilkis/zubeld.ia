@@ -434,6 +434,283 @@ def render_priority_guidance(workflow: str, domain: str) -> list[str]:
     return lines
 
 
+def prompt_text(label: str, default: str) -> str:
+    raw_value = input(f"{label} [{default}]: ").strip()
+    return raw_value or default
+
+
+def prompt_choice(label: str, options: list[tuple[str, str]], default: str) -> str:
+    option_index = {str(index): value for index, (value, _) in enumerate(options, start=1)}
+    values = {value for value, _ in options}
+    default_index = next(
+        str(index)
+        for index, (value, _) in enumerate(options, start=1)
+        if value == default
+    )
+    print(label)
+    for index, (value, description) in enumerate(options, start=1):
+        default_note = " [default]" if value == default else ""
+        print(f"  {index}. {value}{default_note}")
+        print(f"     {description}")
+    while True:
+        raw_value = input(f"Choose an option [{default_index}]: ").strip().lower()
+        if not raw_value:
+            return default
+        if raw_value in option_index:
+            return option_index[raw_value]
+        if raw_value in values:
+            return raw_value
+        print("Enter the option number or value shown above.")
+
+
+def prompt_yes_no(label: str, default: bool = True) -> bool:
+    suffix = "Y/n" if default else "y/N"
+    while True:
+        raw_value = input(f"{label} [{suffix}]: ").strip().lower()
+        if not raw_value:
+            return default
+        if raw_value in {"y", "yes"}:
+            return True
+        if raw_value in {"n", "no"}:
+            return False
+        print("Enter yes or no.")
+
+
+def prompt_targets(default_targets: list[str]) -> list[str]:
+    current_default = "both" if set(default_targets) == VALID_TARGETS else default_targets[0]
+    choice = prompt_choice(
+        "Which targets should the first pass support?",
+        [
+            ("both", "Render both Cursor and Claude outputs from the same spec."),
+            ("cursor", TARGET_DESCRIPTIONS["cursor"]),
+            ("claude", TARGET_DESCRIPTIONS["claude"]),
+        ],
+        current_default,
+    )
+    if choice == "both":
+        return sorted(VALID_TARGETS)
+    return [choice]
+
+
+def build_guided_bootstrap_spec(
+    repo_name: str,
+    preset: str,
+    summary: str,
+    targets: list[str],
+    risk_posture: str,
+) -> dict:
+    spec = build_preset_spec(repo_name, preset)
+    spec["project"]["summary"] = summary
+    spec["project"]["riskPosture"] = risk_posture
+    spec["targets"] = targets
+    return spec
+
+
+def run_guided_bootstrap(
+    target_dir: Path,
+    preset: str = DEFAULT_PRESET,
+) -> tuple[Path | None, bool, str, list[str]]:
+    repo_name = target_dir.name or "new-repo"
+    _, default_workflow, default_domain = normalize_composed_preset(preset)
+    print("Zubeldia bootstrap")
+    print("Estimated confirmation time: about 2 minutes.")
+    print("You will choose a preset and a few practical defaults. You can fine-tune init-orch.md later.")
+    print("")
+
+    workflow = prompt_choice(
+        "Which workflow matches this repository best?",
+        [(value, WORKFLOW_PRESET_DESCRIPTIONS[value]) for value in VALID_WORKFLOW_PRESETS],
+        default_workflow,
+    )
+    print("")
+    domain = prompt_choice(
+        "Which domain is the best fit?",
+        [(value, DOMAIN_PRESET_DESCRIPTIONS[value]) for value in VALID_DOMAIN_PRESETS],
+        default_domain,
+    )
+    print("")
+    summary = prompt_text(
+        "Short project summary",
+        f"{repo_name}: practical, reviewable progress with agent help.",
+    )
+    print("")
+    targets = prompt_targets(sorted(VALID_TARGETS))
+    print("")
+    risk_posture = prompt_choice(
+        "How cautious should the setup be?",
+        [(value, RISK_POSTURE_DESCRIPTIONS[value]) for value in ("low", "moderate", "high", "strict")],
+        "moderate",
+    )
+    print("")
+
+    chosen_preset = compose_preset(workflow, domain)
+    print("About to create init-orch.md with:")
+    print(f"- preset: {chosen_preset}")
+    print(f"- targets: {', '.join(targets)}")
+    print(f"- risk posture: {risk_posture}")
+    print(f"- summary: {summary}")
+    if not prompt_yes_no("Write the bootstrap file now?", default=True):
+        print("Bootstrap cancelled. No files were written.")
+        return None, False, chosen_preset, targets
+
+    spec = build_guided_bootstrap_spec(repo_name, chosen_preset, summary, targets, risk_posture)
+    blueprint_path = target_dir / "init-orch.md"
+    write_text(blueprint_path, default_blueprint(repo_name, chosen_preset, spec=spec))
+    return blueprint_path, True, chosen_preset, targets
+
+
+def parse_blueprint_block(blueprint_text: str, markers: tuple[str, str], label: str) -> object:
+    try:
+        return json.loads(extract_block(blueprint_text, markers, label))
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Invalid JSON in the {label} block: {exc}") from exc
+
+
+def collect_review_context(target_dir: Path, blueprint_path: Path, spec: dict, metadata: dict) -> list[dict]:
+    items = []
+    last_rendered_raw = metadata.get("lastRenderedAt")
+    rendered_targets = metadata.get("renderedTargets", [])
+    if not last_rendered_raw:
+        items.append(
+            {
+                "title": "Render the first target files",
+                "recommendation": "Run `init-orch --all` or render the specific target you want to use first.",
+                "rationale": "The spec exists, but the tool-specific files have not been compiled yet.",
+            }
+        )
+    else:
+        try:
+            last_rendered_at = datetime.fromisoformat(last_rendered_raw)
+        except ValueError:
+            last_rendered_at = None
+        if last_rendered_at is not None:
+            blueprint_mtime = datetime.fromtimestamp(blueprint_path.stat().st_mtime, timezone.utc)
+            if blueprint_mtime.timestamp() - last_rendered_at.timestamp() > 1:
+                items.append(
+                    {
+                        "title": "Re-render after spec edits",
+                        "recommendation": "Run `init-orch --all` after reviewing recent edits to init-orch.md.",
+                        "rationale": "The blueprint appears newer than the latest recorded render.",
+                    }
+                )
+
+    missing_targets = [target for target in spec["targets"] if target not in rendered_targets]
+    if missing_targets and last_rendered_raw:
+        items.append(
+            {
+                "title": "Compile every configured target",
+                "recommendation": "Re-run init-orch for all configured targets so the generated files stay aligned.",
+                "rationale": "The spec includes "
+                + ", ".join(spec["targets"])
+                + " but the latest render only covered "
+                + (", ".join(rendered_targets) if rendered_targets else "none")
+                + ".",
+            }
+        )
+
+    default_summary = base_blueprint_spec(spec["project"]["name"])["project"]["summary"]
+    if spec["project"]["summary"] == default_summary:
+        items.append(
+            {
+                "title": "Replace the placeholder summary",
+                "recommendation": "Write a project summary that explains what good agent work should optimize for.",
+                "rationale": "A specific summary makes presets, rules, and later reviews more useful.",
+            }
+        )
+
+    if not spec["project"]["successCriteria"]:
+        items.append(
+            {
+                "title": "Add success criteria",
+                "recommendation": "List 2-4 concrete outcomes that define a good change in this repository.",
+                "rationale": "Success criteria make the compile and review steps more grounded.",
+            }
+        )
+
+    if len(spec["roles"]) < 3:
+        items.append(
+            {
+                "title": "Add a clearer collaboration shape",
+                "recommendation": "Define at least planner, implementer, and reviewer or evaluator roles.",
+                "rationale": "A small but explicit role model makes the generated guidance more actionable.",
+            }
+        )
+
+    if target_dir.name.startswith("."):
+        items.append(
+            {
+                "title": "Check the target directory name",
+                "recommendation": "Consider setting `project.name` explicitly if the repository folder name is temporary.",
+                "rationale": "Generated files reuse the directory name when no stronger project name is provided.",
+            }
+        )
+    return items
+
+
+def format_review_report(
+    target_dir: Path,
+    spec: dict,
+    metadata: dict,
+    context_items: list[dict],
+    recommendations: dict,
+) -> str:
+    last_rendered = metadata.get("lastRenderedAt") or "never"
+    rendered_targets = metadata.get("renderedTargets", [])
+    lines = [
+        f"Zubeldia review for {target_dir}",
+        "",
+        f"Preset: {spec['preset']}",
+        f"Targets in spec: {', '.join(spec['targets']) if spec['targets'] else 'none'}",
+        f"Last render: {last_rendered}",
+        "Last rendered targets: " + (", ".join(rendered_targets) if rendered_targets else "none"),
+    ]
+
+    if context_items:
+        lines.extend(["", "Practical checks:"])
+        for index, item in enumerate(context_items, start=1):
+            lines.extend(
+                [
+                    f"{index}. {item['title']}",
+                    f"   Recommendation: {item['recommendation']}",
+                    f"   Why: {item['rationale']}",
+                ]
+            )
+
+    if recommendations["items"]:
+        lines.extend(["", "Recommendations:"])
+        for index, item in enumerate(recommendations["items"], start=1):
+            lines.extend(
+                [
+                    f"{index}. {item['title']}",
+                    f"   Recommendation: {item['recommendation']}",
+                    f"   Why: {item['rationale']}",
+                ]
+            )
+    else:
+        lines.extend(["", "Recommendations:", "No major recommendations right now."])
+
+    lines.extend(
+        [
+            "",
+            "Next step:",
+            "Edit init-orch.md if something above should become part of the canonical setup, then re-run init-orch.",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def review_blueprint(target_dir: Path, blueprint_path: Path) -> str:
+    blueprint_text = read_text(blueprint_path)
+    spec = normalize_spec(parse_blueprint_block(blueprint_text, SPEC_MARKERS, "spec"))
+    metadata = require_dict(
+        parse_blueprint_block(blueprint_text, GENERATED_MARKERS, "generated metadata"),
+        "generated",
+    )
+    recommendations = generate_recommendations(spec)
+    context_items = collect_review_context(target_dir, blueprint_path, spec, metadata)
+    return format_review_report(target_dir, spec, metadata, context_items, recommendations)
+
+
 def dedupe_items(items: list[dict], key: str) -> list[dict]:
     seen = set()
     deduped = []
@@ -1391,9 +1668,9 @@ def build_preset_spec(repo_name: str, preset: str) -> dict:
     return spec
 
 
-def default_blueprint(repo_name: str, preset: str = DEFAULT_PRESET) -> str:
+def default_blueprint(repo_name: str, preset: str = DEFAULT_PRESET, spec: dict | None = None) -> str:
     preset_name, workflow_name, domain_name = normalize_composed_preset(preset)
-    spec = build_preset_spec(repo_name, preset_name)
+    spec = deepcopy(spec) if spec is not None else build_preset_spec(repo_name, preset_name)
     generated = {
         "version": 2,
         "lastRenderedAt": None,
@@ -1406,7 +1683,7 @@ def default_blueprint(repo_name: str, preset: str = DEFAULT_PRESET) -> str:
     }
     recommendations = {
         "version": 1,
-        "summary": "Render the targets to populate recommendations.",
+        "summary": "Run `init-orch --review` for practical recommendations or render targets after editing.",
         "items": [],
     }
     priority_guidance = render_priority_guidance(workflow_name, domain_name)
@@ -1430,9 +1707,10 @@ def default_blueprint(repo_name: str, preset: str = DEFAULT_PRESET) -> str:
         "## Workflow",
         "",
         "1. Fill in the spec block above.",
-        "2. Run `init-orch --cursor`, `init-orch --claude`, or `init-orch --all`.",
-        "3. Re-run the command whenever you change the orchestration design.",
-        "4. Review the generated recommendations block and decide which changes belong in the spec.",
+        "2. Run `init-orch --cursor`, `init-orch --claude`, or `init-orch --all` to compile target-specific files.",
+        "3. Run `init-orch --review` whenever you want deliberate setup recommendations without rewriting files.",
+        "4. Re-run the command whenever you change the orchestration design.",
+        "5. Review the generated recommendations block and decide which changes belong in the spec.",
         "",
         "The generator will only rewrite the metadata and recommendations blocks below.",
         "",
@@ -1443,11 +1721,15 @@ def default_blueprint(repo_name: str, preset: str = DEFAULT_PRESET) -> str:
     return "\n".join(parts).rstrip() + "\n"
 
 
-def bootstrap_blueprint(target_dir: Path, preset: str = DEFAULT_PRESET) -> tuple[Path, bool]:
+def bootstrap_blueprint(
+    target_dir: Path,
+    preset: str = DEFAULT_PRESET,
+    spec: dict | None = None,
+) -> tuple[Path, bool]:
     blueprint_path = target_dir / "init-orch.md"
     if blueprint_path.exists():
         return blueprint_path, False
-    write_text(blueprint_path, default_blueprint(target_dir.name or "new-repo", preset))
+    write_text(blueprint_path, default_blueprint(target_dir.name or "new-repo", preset, spec=spec))
     return blueprint_path, True
 
 
@@ -2210,6 +2492,25 @@ def collect_selected_targets(args: argparse.Namespace) -> list[str]:
     return sorted(selected)
 
 
+def should_run_guided_bootstrap(
+    args: argparse.Namespace,
+    target_dir: Path,
+    selected_targets: list[str],
+    preset_explicit: bool,
+) -> bool:
+    blueprint_path = target_dir / "init-orch.md"
+    if blueprint_path.exists() or args.no_interactive or args.review:
+        return False
+    if args.interactive:
+        return True
+    return (
+        not preset_explicit
+        and not selected_targets
+        and sys.stdin.isatty()
+        and sys.stdout.isatty()
+    )
+
+
 def main() -> int:
     args = parse_args()
     preset_explicit = "--preset" in sys.argv
@@ -2219,10 +2520,45 @@ def main() -> int:
         return 1
 
     selected_targets = collect_selected_targets(args)
-    blueprint_path, created = bootstrap_blueprint(target_dir, args.preset)
+    if args.review and (args.init or selected_targets):
+        print("Error: --review cannot be combined with --init, --cursor, --claude, or --all.", file=sys.stderr)
+        return 1
+
+    blueprint_path = target_dir / "init-orch.md"
+    if args.review:
+        if not blueprint_path.exists():
+            print("Error: init-orch.md does not exist yet. Run init-orch first.", file=sys.stderr)
+            return 1
+        try:
+            print(review_blueprint(target_dir, blueprint_path))
+        except ValueError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
+        return 0
+
+    bootstrap_preset = args.preset
+    guided_bootstrap_used = False
+    guided_targets: list[str] = []
+    if should_run_guided_bootstrap(args, target_dir, selected_targets, preset_explicit):
+        blueprint_path, created, bootstrap_preset, guided_targets = run_guided_bootstrap(target_dir, args.preset)
+        if not created:
+            return 0
+        guided_bootstrap_used = True
+    else:
+        blueprint_path, created = bootstrap_blueprint(target_dir, args.preset)
 
     if created:
-        print(f"Created {blueprint_path} using preset '{args.preset}'.")
+        print(f"Created {blueprint_path} using preset '{bootstrap_preset}'.")
+        if guided_bootstrap_used:
+            effective_targets = guided_targets or selected_targets
+            next_render = (
+                f"init-orch --{effective_targets[0]}"
+                if len(effective_targets) == 1
+                else "init-orch --all"
+            )
+            print("Start by refining mission, success criteria, verification, and roles in init-orch.md.")
+            print(f"When you are ready, run {next_render} to compile the first target files.")
+            print("Use init-orch --review later when you want practical setup recommendations.")
         if selected_targets:
             print("Edit init-orch.md to describe your orchestration design, then rerun init-orch.")
             return 0
