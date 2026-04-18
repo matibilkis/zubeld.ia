@@ -2,6 +2,8 @@
 
 `init-orch` bootstraps and re-renders agent orchestration files for a repository from one editable source: `init-orch.md`.
 
+Project's name on [Osvaldo Zubeldía](https://es.wikipedia.org/wiki/Osvaldo_Zubeld%C3%ADa), former DT Estudiantes de La Plata, world-champion 1968.
+
 Instead of hand-editing `.cursor/`, `.claude/`, `AGENTS.md`, and related config files, you describe your intended workflow, permissions, roles, imports, and evaluation loop once, then generate the target-specific files from that blueprint.
 
 ## What It Does
@@ -52,15 +54,15 @@ init-orch --preset web-app
 
 Available presets:
 
-| Preset | Best For | Strengths | Weaknesses |
-| --- | --- | --- | --- |
-| `research` | Exploratory work, experiments, rapid iteration, evaluation-heavy loops | Flexible, fast to adapt, good for trying ideas and debugging on the fly | Less opinionated about delivery discipline and production hardening |
-| `engineering` | Shipping software with clear implementation, review, and verification stages | Repeatable workflow, stronger quality controls, clearer role separation | Can feel heavy for open-ended exploration or very early ideas |
-| `web-app` | Frontend or full-stack apps with UI flows and browser-based verification | Good fit for interaction testing, app flows, and user-facing checks | Adds unnecessary assumptions for non-UI repos |
-| `poc` | Proving an idea quickly with minimal setup | Low ceremony, fast to start, optimized for momentum | Weaker on long-term maintainability, review depth, and hardening |
-| `multimedia` | Projects involving media assets, generation, transformation, or review | Better fit for multimodal workflows and asset-heavy tasks | Less useful for pure codebases with little media handling |
-| `infra` | Ops, deployment, automation, and environment-heavy repositories | Stronger safety posture, explicit permissions, careful change control | Can slow down fast product exploration |
-| `docs` | Documentation-first repos and writing-heavy workflows | Clearer editorial structure, consistency, and reviewability | Less tailored to implementation and runtime verification |
+| Preset        | Best For                                                                     | Strengths                                                               | Weaknesses                                                          |
+| ------------- | ---------------------------------------------------------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `research`    | Exploratory work, experiments, rapid iteration, evaluation-heavy loops       | Flexible, fast to adapt, good for trying ideas and debugging on the fly | Less opinionated about delivery discipline and production hardening |
+| `engineering` | Shipping software with clear implementation, review, and verification stages | Repeatable workflow, stronger quality controls, clearer role separation | Can feel heavy for open-ended exploration or very early ideas       |
+| `web-app`     | Frontend or full-stack apps with UI flows and browser-based verification     | Good fit for interaction testing, app flows, and user-facing checks     | Adds unnecessary assumptions for non-UI repos                       |
+| `poc`         | Proving an idea quickly with minimal setup                                   | Low ceremony, fast to start, optimized for momentum                     | Weaker on long-term maintainability, review depth, and hardening    |
+| `multimedia`  | Projects involving media assets, generation, transformation, or review       | Better fit for multimodal workflows and asset-heavy tasks               | Less useful for pure codebases with little media handling           |
+| `infra`       | Ops, deployment, automation, and environment-heavy repositories              | Stronger safety posture, explicit permissions, careful change control   | Can slow down fast product exploration                              |
+| `docs`        | Documentation-first repos and writing-heavy workflows                        | Clearer editorial structure, consistency, and reviewability             | Less tailored to implementation and runtime verification            |
 
 Future direction: a later version could ask for a short free-form project description and recommend the closest preset automatically.
 
