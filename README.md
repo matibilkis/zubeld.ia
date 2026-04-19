@@ -1,6 +1,6 @@
 # init-orch
 
-`init-orch` is the practical runtime behind Zubeldia: a simple loop for solo coders who want to bootstrap an agent setup quickly, compile it from one source of truth, and review it deliberately over time.
+`init-orch` is the practical runtime behind Zubeldia: a simple loop for solo coders who want to bootstrap an agent setup quickly, compile it from one source of truth, refine it for the actual repo, and review it deliberately over time.
 
 Project's name on [Osvaldo Zubeldía](https://es.wikipedia.org/wiki/Osvaldo_Zubeld%C3%ADa), former DT Estudiantes de La Plata, world-champion 1968.
 
@@ -50,6 +50,22 @@ That generates:
 
 The compile step is the strongest idea in the project: one high-level spec, many generated outputs, explicit review before changing the setup.
 
+If `init-orch` detects existing owned-looking structure such as `orch/`, `.cursor/`, `.claude/`, `AGENTS.md`, or an existing `.gitignore` line update, it will stop and ask for confirmation in a terminal. In non-interactive runs, re-run with:
+
+```bash
+init-orch --all --confirm-existing
+```
+
+### Refine
+
+After the first render, tailor the setup to the real repository:
+
+```bash
+init-orch --refine
+```
+
+This asks for a short second pass of repo-specific details such as the most important verification command, sensitive paths, and existing conventions. The goal is to keep bootstrap minimal while still making the setup feel native to the repo.
+
 ### Review
 
 When the setup feels stale or off, ask for a deliberate review:
@@ -58,7 +74,7 @@ When the setup feels stale or off, ask for a deliberate review:
 init-orch --review
 ```
 
-This prints a short snapshot, immediate actions, and practical setup recommendations without rewriting files. The goal is not an always-on orchestration brain. The goal is a lightweight review loop that helps you tighten the setup when it matters.
+This prints a short snapshot, immediate actions, and practical setup recommendations without rewriting files. It now also tries to surface repo-specific issues such as path collisions, missing canonical verification commands, and workspace-style structure. The goal is not an always-on orchestration brain. The goal is a lightweight review loop that helps you tighten the setup when it matters.
 
 ## Why This Is Useful
 
@@ -145,6 +161,7 @@ mkdir my-new-repo && cd my-new-repo
 init-orch
 # refine init-orch.md
 init-orch --all
+init-orch --refine
 init-orch --review
 ```
 
@@ -155,6 +172,7 @@ If you want a longer walkthrough, see `docs/quickstart.md`.
 Planned next steps:
 
 - keep improving the bootstrap flow while preserving a fast non-interactive path
+- make the refine step smarter without turning it into a long interview
 - strengthen review recommendations with limited local context
 - improve target-specific rendering without bloating the core workflow
 - explore additional adapters after the bootstrap and review loop feel solid

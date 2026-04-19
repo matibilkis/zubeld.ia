@@ -1,10 +1,11 @@
 # Quickstart
 
-`init-orch` works best as a practical three-step loop:
+`init-orch` works best as a practical four-step loop:
 
 1. Bootstrap a repository with a short interactive setup.
 2. Compile one source of truth into tool-specific files.
-3. Review the setup deliberately when it starts feeling off.
+3. Refine the setup with repo-specific details after the first render.
+4. Review the setup deliberately when it starts feeling off.
 
 `init-orch.md` is the only high-level file you should edit directly. The generated files under `.cursor/`, `.claude/`, `AGENTS.md`, and `orch/` are derived outputs.
 
@@ -69,6 +70,12 @@ init-orch --cursor
 init-orch --claude
 ```
 
+If `init-orch` detects existing owned-looking structure such as `orch/`, `.cursor/`, `.claude/`, `AGENTS.md`, or a `.gitignore` update it needs to make, it will stop and ask for confirmation in a terminal. For non-interactive runs, re-run with:
+
+```bash
+init-orch --all --confirm-existing
+```
+
 ## What to fill in first
 
 If you are not fully sure what the project should look like yet, use this order:
@@ -88,7 +95,22 @@ For a first useful pass, steps 1 and 2 are enough. The rest can stay rough until
 
 If `init-orch.md` already exists, the preset is ignored and your existing blueprint is preserved.
 
-## 3. Review
+## 3. Refine
+
+After the first render, tailor the setup to the actual repository:
+
+```bash
+init-orch --refine
+```
+
+This is a short second pass for high-value repo details such as:
+
+- the most common kinds of changes
+- the main verification command or manual check
+- sensitive directories or file patterns
+- existing conventions the generated setup should respect
+
+## 4. Review
 
 When the setup feels stale, run:
 
@@ -96,7 +118,7 @@ When the setup feels stale, run:
 init-orch --review
 ```
 
-This prints a short snapshot, immediate actions, and setup recommendations without rewriting files. Treat it as an opt-in review loop, not an autonomous control plane.
+This prints a short snapshot, immediate actions, and setup recommendations without rewriting files. It also tries to surface repo-specific issues such as missing canonical verification commands, workspace-style structure, or existing generated-path collisions. Treat it as an opt-in review loop, not an autonomous control plane.
 
 ## Minimal example
 
@@ -277,6 +299,7 @@ mkdir my-web-app && cd my-web-app
 init-orch --preset engineering-web-app --no-interactive
 # review and fine-tune init-orch.md
 init-orch --all
+init-orch --refine
 init-orch --review
 ```
 
