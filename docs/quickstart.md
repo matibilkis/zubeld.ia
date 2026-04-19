@@ -1,11 +1,12 @@
 # Quickstart
 
-`init-orch` works best as a practical four-step loop:
+`init-orch` works best as a practical five-step loop:
 
 1. Bootstrap a repository with a short interactive setup.
-2. Compile one source of truth into tool-specific files.
-3. Refine the setup with repo-specific details after the first render.
-4. Review the setup deliberately when it starts feeling off.
+2. Ask for a repo-aware suggestion pass when you want a better first ansatz.
+3. Compile one source of truth into tool-specific files.
+4. Refine the setup with repo-specific details after the first render.
+5. Review the setup deliberately when it starts feeling off.
 
 `init-orch.md` is the only high-level file you should edit directly. The generated files under `.cursor/`, `.claude/`, `AGENTS.md`, and `orch/` are derived outputs.
 
@@ -55,7 +56,24 @@ Domains:
 
 The default preset is `engineering-generic`.
 
-## 2. Compile
+## 2. Suggest
+
+If you want help filling the hardest fields in `init-orch.md`, run:
+
+```bash
+init-orch --suggest
+```
+
+This samples a small amount of repo evidence and proposes updates for:
+
+- `project.summary`
+- `project.mission`
+- `project.successCriteria`
+- `verification`
+
+It prints the proposal first and only applies it if you confirm.
+
+## 3. Compile
 
 After bootstrap, refine `init-orch.md` and then render the target-specific outputs:
 
@@ -95,7 +113,7 @@ For a first useful pass, steps 1 and 2 are enough. The rest can stay rough until
 
 If `init-orch.md` already exists, the preset is ignored and your existing blueprint is preserved.
 
-## 3. Refine
+## 4. Refine
 
 After the first render, tailor the setup to the actual repository:
 
@@ -110,7 +128,7 @@ This is a short second pass for high-value repo details such as:
 - sensitive directories or file patterns
 - existing conventions the generated setup should respect
 
-## 4. Review
+## 5. Review
 
 When the setup feels stale, run:
 
@@ -297,6 +315,7 @@ For a frontend-heavy app:
 ```bash
 mkdir my-web-app && cd my-web-app
 init-orch --preset engineering-web-app --no-interactive
+init-orch --suggest
 # review and fine-tune init-orch.md
 init-orch --all
 init-orch --refine

@@ -990,7 +990,7 @@ def collect_suggest_evidence(target_dir: Path, blueprint_path: Path) -> dict:
                 "content": text,
             }
         )
-    return {
+    evidence = {
         "rawSpec": raw_spec,
         "spec": spec,
         "metadata": metadata,
@@ -998,10 +998,26 @@ def collect_suggest_evidence(target_dir: Path, blueprint_path: Path) -> dict:
         "topLevelEntries": list_top_level_entries(target_dir),
         "files": file_snippets,
     }
+    evidence["repoBrief"] = build_repo_brief(target_dir, evidence)
+    return evidence
+
+
+def has_python_shebang(path: Path) -> bool:
+    if not path.exists() or not path.is_file():
+        return False
+    text = read_text_limited(path, char_limit=200)
+    first_line = text.splitlines()[0] if text.splitlines() else ""
+    return "python" in first_line.lower()
 
 
 def infer_primary_ecosystem(target_dir: Path) -> tuple[str, str]:
-    if (target_dir / "pyproject.toml").exists() or (target_dir / "setup.py").exists() or any(target_dir.glob("*.py")):
+    repo_entrypoint = target_dir / target_dir.name
+    if (
+        (target_dir / "pyproject.toml").exists()
+        or (target_dir / "setup.py").exists()
+        or any(target_dir.glob("*.py"))
+        or has_python_shebang(repo_entrypoint)
+    ):
         return ("python", "Python repo markers detected.")
     if (target_dir / "package.json").exists():
         return ("javascript", "JavaScript or TypeScript repo markers detected.")
@@ -1014,10 +1030,8 @@ def infer_primary_ecosystem(target_dir: Path) -> tuple[str, str]:
 
 def detect_python_entrypoint(target_dir: Path) -> str:
     repo_entrypoint = target_dir / target_dir.name
-    if repo_entrypoint.exists() and repo_entrypoint.is_file():
-        text = read_text_limited(repo_entrypoint, char_limit=200)
-        if "python" in text.splitlines()[0].lower():
-            return f"python3 -m py_compile ./{repo_entrypoint.name}"
+    if has_python_shebang(repo_entrypoint):
+        return f"python3 -m py_compile ./{repo_entrypoint.name}"
     for path in sorted(target_dir.glob("*.py")):
         return f"python3 -m py_compile ./{path.name}"
     return ""
@@ -1148,7 +1162,11 @@ def suggest_success_criteria(repo_brief: dict, spec: dict) -> tuple[list[str], s
         items.append("Keep findings, assumptions, and evidence easy to trace.")
     else:
         items.append("Reduce setup friction without compromising safety on existing repos.")
-    return dedupe_items([{"value": item} for item in items], "value") and [item["value"] for item in dedupe_items([{"value": item} for item in items], "value")], "medium"
+    deduped = []
+    for item in items:
+        if item not in deduped:
+            deduped.append(item)
+    return deduped, "medium"
 
 
 def build_verification_suggestions(repo_brief: dict, spec: dict) -> tuple[list[dict], str]:
@@ -1315,8 +1333,30 @@ def apply_suggestions_to_spec(raw_spec: dict, suggestions: dict) -> dict:
 
 def run_suggest_step(target_dir: Path, blueprint_path: Path) -> bool:
     evidence = collect_suggest_evidence(target_dir, blueprint_path)
-    suggestions = generate_suggestions(evidence["repoBrief"], evidence["rawSpec"], evidence["spec"]) if "repoBrief" in evidence else None
-    raise NotImplementedError()
+    suggestions = generate_suggestions(evidence["repoBrief"], evidence["rawSpec"], evidence["spec"])
+    report = format_suggestion_report(evidence["repoBrief"], suggestions, evidence["spec"])
+    print(report)
+
+    if not (suggestions["project"] or suggestions["verification"]):
+        return False
+
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        print("")
+        print("Non-interactive session detected, so suggestions were printed only.")
+        return False
+
+    if not prompt_yes_no("Apply these suggestions to init-orch.md now?", default=False):
+        print("Suggest finished. No files were written.")
+        return False
+
+    updated_spec = apply_suggestions_to_spec(evidence["rawSpec"], suggestions)
+    blueprint_text = read_text(blueprint_path)
+    updated_blueprint = replace_block(blueprint_text, SPEC_MARKERS, updated_spec)
+    write_text(blueprint_path, updated_blueprint)
+    print(f"Updated {blueprint_path}.")
+    print("Next: run init-orch --all to recompile generated files.")
+    print("Then run init-orch --refine or init-orch --review to continue tuning the setup.")
+    return True
 
 
 def run_guided_bootstrap(
@@ -2693,11 +2733,12 @@ def default_blueprint(repo_name: str, preset: str = DEFAULT_PRESET, spec: dict |
         "## Workflow",
         "",
         "1. Fill in the spec block above.",
-        "2. Run `init-orch --cursor`, `init-orch --claude`, or `init-orch --all` to compile target-specific files.",
-        "3. Run `init-orch --refine` after the first render when you want to tailor the setup to the actual repo.",
-        "4. Run `init-orch --review` whenever you want deliberate setup recommendations without rewriting files.",
-        "5. Re-run the command whenever you change the orchestration design.",
-        "6. Review the generated recommendations block and decide which changes belong in the spec.",
+        "2. Run `init-orch --suggest` if you want a repo-aware proposal for summary, mission, success criteria, and verification.",
+        "3. Run `init-orch --cursor`, `init-orch --claude`, or `init-orch --all` to compile target-specific files.",
+        "4. Run `init-orch --refine` after the first render when you want to tailor the setup to the actual repo.",
+        "5. Run `init-orch --review` whenever you want deliberate setup recommendations without rewriting files.",
+        "6. Re-run the command whenever you change the orchestration design.",
+        "7. Review the generated recommendations block and decide which changes belong in the spec.",
         "",
         "The generator will only rewrite the metadata and recommendations blocks below.",
         "",
@@ -3504,7 +3545,7 @@ def should_run_guided_bootstrap(
     preset_explicit: bool,
 ) -> bool:
     blueprint_path = target_dir / "init-orch.md"
-    if blueprint_path.exists() or args.no_interactive or args.review or args.refine:
+    if blueprint_path.exists() or args.no_interactive or args.review or args.refine or args.suggest:
         return False
     if args.interactive:
         return True
@@ -3525,14 +3566,17 @@ def main() -> int:
         return 1
 
     selected_targets = collect_selected_targets(args)
-    if args.confirm_existing and (args.review or args.refine or not selected_targets):
+    if args.confirm_existing and (args.review or args.refine or args.suggest or not selected_targets):
         print("Error: --confirm-existing only applies to render commands.", file=sys.stderr)
         return 1
-    if args.review and (args.init or selected_targets or args.refine):
-        print("Error: --review cannot be combined with --init, --cursor, --claude, --all, or --refine.", file=sys.stderr)
+    if args.review and (args.init or selected_targets or args.refine or args.suggest):
+        print("Error: --review cannot be combined with --init, --cursor, --claude, --all, --refine, or --suggest.", file=sys.stderr)
         return 1
-    if args.refine and (args.init or selected_targets):
-        print("Error: --refine cannot be combined with --init, --cursor, --claude, or --all.", file=sys.stderr)
+    if args.refine and (args.init or selected_targets or args.suggest):
+        print("Error: --refine cannot be combined with --init, --cursor, --claude, --all, or --suggest.", file=sys.stderr)
+        return 1
+    if args.suggest and (args.init or selected_targets):
+        print("Error: --suggest cannot be combined with --init, --cursor, --claude, or --all.", file=sys.stderr)
         return 1
 
     blueprint_path = target_dir / "init-orch.md"
@@ -3542,6 +3586,17 @@ def main() -> int:
             return 1
         try:
             print(review_blueprint(target_dir, blueprint_path))
+        except ValueError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
+        return 0
+
+    if args.suggest:
+        if not blueprint_path.exists():
+            print("Error: init-orch.md does not exist yet. Run init-orch first.", file=sys.stderr)
+            return 1
+        try:
+            run_suggest_step(target_dir, blueprint_path)
         except ValueError as exc:
             print(f"Error: {exc}", file=sys.stderr)
             return 1
@@ -3579,6 +3634,7 @@ def main() -> int:
                 else "init-orch --all"
             )
             print("Start with mission, success criteria, verification, and roles in init-orch.md.")
+            print("Run init-orch --suggest if you want a repo-aware first draft for summary, mission, and verification.")
             print(f"Then run {next_render} to compile the first target files.")
             print("After the first render, run init-orch --refine to tailor the setup to the repo.")
             print("Later, run init-orch --review when you want practical setup feedback.")
@@ -3592,9 +3648,9 @@ def main() -> int:
         if guided_bootstrap_used:
             return 0
         if args.init or created:
-            print("init-orch.md is ready. Fill it in, then rerun with --cursor, --claude, or --all.")
+            print("init-orch.md is ready. Fill it in, optionally run --suggest, then rerun with --cursor, --claude, or --all.")
             return 0
-        print("Nothing to render yet. Edit init-orch.md, then use --cursor, --claude, or --all.")
+        print("Nothing to render yet. Edit init-orch.md, optionally run --suggest, then use --cursor, --claude, or --all.")
         return 0
 
     try:

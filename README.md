@@ -1,6 +1,6 @@
 # init-orch
 
-`init-orch` is the practical runtime behind Zubeldia: a simple loop for solo coders who want to bootstrap an agent setup quickly, compile it from one source of truth, refine it for the actual repo, and review it deliberately over time.
+`init-orch` is the practical runtime behind Zubeldia: a simple loop for solo coders who want to bootstrap an agent setup quickly, suggest a stronger repo-aware first draft, compile it from one source of truth, refine it for the actual repo, and review it deliberately over time.
 
 Project's name on [Osvaldo Zubeldía](https://es.wikipedia.org/wiki/Osvaldo_Zubeld%C3%ADa), former DT Estudiantes de La Plata, world-champion 1968.
 
@@ -55,6 +55,16 @@ If `init-orch` detects existing owned-looking structure such as `orch/`, `.curso
 ```bash
 init-orch --all --confirm-existing
 ```
+
+### Suggest
+
+If you want a better first ansatz before rendering, ask for a repo-aware proposal:
+
+```bash
+init-orch --suggest
+```
+
+This samples a small amount of repo evidence and proposes updates for `project.summary`, `project.mission`, `project.successCriteria`, and `verification`. It prints the proposal first and only applies it if you confirm.
 
 ### Refine
 
@@ -159,7 +169,8 @@ init-orch --help
 ```bash
 mkdir my-new-repo && cd my-new-repo
 init-orch
-# refine init-orch.md
+init-orch --suggest
+# review and refine init-orch.md
 init-orch --all
 init-orch --refine
 init-orch --review
