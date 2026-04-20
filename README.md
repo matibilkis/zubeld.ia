@@ -30,17 +30,17 @@ If you only remember one thing, remember this:
 
 ## When To Use What
 
-| Command | Use it when | What it does |
-| --- | --- | --- |
-| `init-orch` | You are starting from scratch | Creates the first draft of `init-orch.md` |
-| `init-orch --list-presets` | You want to compare preset options quickly | Lists workflows, domains, composed presets, and recommended defaults |
-| `init-orch --explain-preset <name>` | You want to understand one preset before choosing it | Explains the preset's working-style bias, repo-shape bias, and default emphasis |
-| `init-orch --suggest` | You want a better first ansatz | Proposes repo-aware updates for summary, mission, success criteria, and verification |
-| `init-orch --all` | You are ready to compile the setup | Generates the tool-specific files from `init-orch.md` |
-| `init-orch --all --dry-run` | You want to review generated changes before writing | Previews which generated files would be created or updated |
-| `init-orch --refine` | The first render exists and you want repo-specific detail | Adds checks, sensitive paths, and conventions back into the spec |
-| `init-orch --review` | The setup feels stale or off | Prints practical recommendations without rewriting files |
-| `init-orch --parity` | You want to inspect Cursor/Claude alignment directly | Explains what is shared vs target-specific and surfaces parity drift |
+| Command                             | Use it when                                               | What it does                                                                         |
+| ----------------------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| `init-orch`                         | You are starting from scratch                             | Creates the first draft of `init-orch.md`                                            |
+| `init-orch --list-presets`          | You want to compare preset options quickly                | Lists workflows, domains, composed presets, and recommended defaults                 |
+| `init-orch --explain-preset <name>` | You want to understand one preset before choosing it      | Explains the preset's working-style bias, repo-shape bias, and default emphasis      |
+| `init-orch --suggest`               | You want a better first ansatz                            | Proposes repo-aware updates for summary, mission, success criteria, and verification |
+| `init-orch --all`                   | You are ready to compile the setup                        | Generates the tool-specific files from `init-orch.md`                                |
+| `init-orch --all --dry-run`         | You want to review generated changes before writing       | Previews which generated files would be created or updated                           |
+| `init-orch --refine`                | The first render exists and you want repo-specific detail | Adds checks, sensitive paths, and conventions back into the spec                     |
+| `init-orch --review`                | The setup feels stale or off                              | Prints practical recommendations without rewriting files                             |
+| `init-orch --parity`                | You want to inspect Cursor/Claude alignment directly      | Explains what is shared vs target-specific and surfaces parity drift                 |
 
 ## Workflow Diagram
 
@@ -204,22 +204,22 @@ The workflow controls the working style. The domain controls the repo-shape bias
 
 Available workflows:
 
-| Workflow | Best For | Bias |
-| --- | --- | --- |
-| `research` | Exploratory work, synthesis, and careful source-driven iteration | Stronger evidence discipline, less production pressure |
-| `engineering` | Maintainable long-term delivery | Balanced default, stronger production-readiness |
-| `poc` | Fast experiments and idea validation | Lighter process, faster iteration |
+| Workflow      | Best For                                                         | Bias                                                   |
+| ------------- | ---------------------------------------------------------------- | ------------------------------------------------------ |
+| `research`    | Exploratory work, synthesis, and careful source-driven iteration | Stronger evidence discipline, less production pressure |
+| `engineering` | Maintainable long-term delivery                                  | Balanced default, stronger production-readiness        |
+| `poc`         | Fast experiments and idea validation                             | Lighter process, faster iteration                      |
 
 Available domains:
 
-| Domain | Best For | Bias |
-| --- | --- | --- |
-| `generic` | Libraries, APIs, backends, CLIs, and general software repos | Broad default |
-| `web-app` | Frontend or full-stack apps with UI work | Stronger UI and behavior verification |
-| `data-science` | Notebooks, experiments, and models | Stronger reproducibility and experiment review |
-| `infra` | Infrastructure, automation, and ops work | Stricter safety and approval defaults |
-| `docs` | Documentation-first repositories | Stronger editorial review |
-| `multimedia` | Asset-heavy or multimodal workflows | Stronger review and provenance awareness |
+| Domain         | Best For                                                    | Bias                                           |
+| -------------- | ----------------------------------------------------------- | ---------------------------------------------- |
+| `generic`      | Libraries, APIs, backends, CLIs, and general software repos | Broad default                                  |
+| `web-app`      | Frontend or full-stack apps with UI work                    | Stronger UI and behavior verification          |
+| `data-science` | Notebooks, experiments, and models                          | Stronger reproducibility and experiment review |
+| `infra`        | Infrastructure, automation, and ops work                    | Stricter safety and approval defaults          |
+| `docs`         | Documentation-first repositories                            | Stronger editorial review                      |
+| `multimedia`   | Asset-heavy or multimodal workflows                         | Stronger review and provenance awareness       |
 
 The default preset is `engineering-generic`.
 
@@ -319,19 +319,37 @@ Compared with larger orchestration platforms:
 - `init-orch` does less on purpose
 - it focuses on repo-local setup, generated guidance, verification expectations, and cross-target consistency
 
-### Honest Assessment
+## Radar
 
-This is useful when:
+This is a rough comparison set, not a leaderboard.
 
-- you want a ready-to-use first render quickly
-- you want Cursor and Claude kept in sync from one source of truth
-- you care about reviewability more than raw feature count
+### [`rulesync`](https://rulesync.dyoshikawa.com/)
 
-This is not useful when:
+- best when you mainly want to generate or sync rule/config files
+- `init-orch` differs by centering one editable blueprint plus a longer loop: bootstrap, suggest, compile, refine, and review
 
-- one hand-written `AGENTS.md` is already enough
-- the generated files feel heavier than the problem
-- the setup loop becomes more complex than the repo it supports
-- you actually need an agent runtime rather than a setup compiler
+### [`agentmd`](https://agentmd.online/)
 
-The crude test is simple: if `init-orch` does not save time within the first week, it is too heavy and should be simplified again.
+- best when a lightweight agent markdown setup is enough
+- `init-orch` differs by treating `init-orch.md` as the source of truth and rendering multiple outputs from it instead of stopping at one hand-maintained guide
+
+### [Agent Rules Builder](https://agentrulegen.com/)
+
+- best when you want help assembling rule files quickly
+- `init-orch` differs by being more repo-loop oriented: it cares about verification, maintenance, parity, and later refinement, not only initial rule generation
+
+### [awesome agentic coding templates](https://github.com/florian101010/awesome-agentic-AI-coding-template)
+
+- best when you want a prewired starting repo immediately
+- `init-orch` differs by being a reusable compiler and maintenance workflow you can carry from repo to repo instead of a single starter template
+
+### [code-conductor](https://github.com/ryanmac/code-conductor)
+
+- best when you want runtime orchestration across many agents
+- `init-orch` differs by explicitly not being a runtime; it shapes the local rules, safety posture, response style, and generated artifacts that other agent tools may consume
+
+### Crude Take
+
+- if you want the fastest possible starting files, templates and single-purpose generators may be enough
+- if you want one repo-local source of truth for both Cursor and Claude, `init-orch` is more opinionated and more useful
+- if you want a full execution platform, `init-orch` is too small on purpose
