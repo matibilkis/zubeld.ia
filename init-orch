@@ -84,6 +84,44 @@ WORKSPACE_MARKERS = [
     ("apps", "apps directory"),
     ("packages", "packages directory"),
 ]
+ORCHESTRATION_PRIORITY_FILES = [
+    "init-orch.md",
+    "AGENTS.md",
+    ".cursor/mcp.json",
+    ".claude/settings.json",
+    ".claude/settings.local.json.example",
+    "orch/permissions.policy.json",
+    "orch/imports.lock.json",
+    "orch/evaluation.plan.json",
+]
+ORCHESTRATION_PRIORITY_DIRS = [
+    (".cursor/rules", "*.mdc"),
+    (".cursor/skills", "*"),
+    (".claude/rules", "*.md"),
+    (".claude/agents", "*.md"),
+    (".claude/skills", "*.md"),
+    ("orch", "*.json"),
+]
+GENERIC_ORCHESTRATION_TEXTS = {
+    "Describe what this repository optimizes for.",
+    "Describe what this repository does and what a successful change should optimize for.",
+    "Explain the repository mission and how human and agent work should align.",
+    "Keep human and agent work aligned around practical, reviewable improvements.",
+    "Research-oriented project. Optimize for clarity, synthesis, references, and careful iteration.",
+    "Help humans explore, synthesize, and refine ideas without over-committing to premature implementation.",
+    "Engineering-oriented project. Optimize for maintainable, production-ready changes with focused verification.",
+    "Let agents deliver small, reviewable improvements that hold up in long-term maintenance and production use.",
+    "Proof-of-concept project. Optimize for validating an idea quickly without losing basic safety.",
+    "Move quickly enough to validate the concept while keeping the experiment understandable and easy to discard or evolve.",
+    "Web application project. Optimize for shipping UI and product changes safely with clear verification.",
+    "Data science project. Optimize for exploratory analysis, experiment traceability, and reproducible results.",
+    "Infrastructure or operations project. Optimize for cautious planning, clear diffs, and explicit approval gates.",
+    "Documentation-focused project. Optimize for clarity, consistency, and low-risk iteration.",
+    "Multimedia content generation project. Optimize for repeatable asset production, review, and publication readiness.",
+}
+NORMALIZED_GENERIC_ORCHESTRATION_TEXTS = {
+    re.sub(r"\s+", " ", item.strip().lower()) for item in GENERIC_ORCHESTRATION_TEXTS
+}
 PRIORITY_GUIDANCE = [
     {
         "level": "Priority 1",
@@ -922,6 +960,54 @@ def first_meaningful_paragraph(text: str) -> str:
     return paragraphs[0] if paragraphs else ""
 
 
+def normalize_compare_text(text: str) -> str:
+    return re.sub(r"\s+", " ", text.strip().lower())
+
+
+def looks_like_generic_orchestration_text(text: str) -> bool:
+    normalized = normalize_compare_text(text)
+    return not normalized or normalized in NORMALIZED_GENERIC_ORCHESTRATION_TEXTS
+
+
+def extract_markdown_section(text: str, heading: str) -> str:
+    lines = text.splitlines()
+    captured = []
+    active = False
+    target_heading = heading.strip().lower()
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("##"):
+            current_heading = stripped.lstrip("#").strip().lower()
+            if active:
+                break
+            active = current_heading == target_heading
+            continue
+        if active:
+            captured.append(line)
+    return "\n".join(captured).strip()
+
+
+def first_descriptive_line(text: str) -> str:
+    for line in text.splitlines():
+        stripped = line.strip().lstrip("-").strip()
+        if len(stripped) < 25:
+            continue
+        if stripped.startswith("Name:") or stripped.startswith("Style:") or stripped.startswith("Targets:"):
+            continue
+        return stripped
+    return ""
+
+
+def is_orchestration_artifact_path(path: Path, target_dir: Path) -> bool:
+    relative = str(path.relative_to(target_dir))
+    return (
+        relative in {"init-orch.md", "AGENTS.md"}
+        or relative.startswith(".cursor/")
+        or relative.startswith(".claude/")
+        or relative.startswith("orch/")
+    )
+
+
 def parse_package_scripts(path: Path) -> dict:
     if not path.exists():
         return {}
@@ -933,7 +1019,7 @@ def parse_package_scripts(path: Path) -> dict:
     return scripts if isinstance(scripts, dict) else {}
 
 
-def choose_suggest_files(target_dir: Path, limit: int = 8) -> list[Path]:
+def choose_orchestration_files(target_dir: Path, limit: int = 10) -> list[Path]:
     selected = []
     seen = set()
 
@@ -941,6 +1027,36 @@ def choose_suggest_files(target_dir: Path, limit: int = 8) -> list[Path]:
         if len(selected) >= limit:
             return
         if not path.exists() or not path.is_file() or not is_text_file(path):
+            return
+        key = str(path)
+        if key in seen:
+            return
+        seen.add(key)
+        selected.append(path)
+
+    for relative_path in ORCHESTRATION_PRIORITY_FILES:
+        add_path(target_dir / relative_path)
+    for relative_dir, pattern in ORCHESTRATION_PRIORITY_DIRS:
+        directory = target_dir / relative_dir
+        if not directory.exists() or not directory.is_dir():
+            continue
+        for child in sorted(directory.glob(pattern)):
+            add_path(child)
+            if len(selected) >= limit:
+                break
+    return selected[:limit]
+
+
+def choose_repo_heuristic_files(target_dir: Path, limit: int = 8) -> list[Path]:
+    selected = []
+    seen = set()
+
+    def add_path(path: Path) -> None:
+        if len(selected) >= limit:
+            return
+        if not path.exists() or not path.is_file() or not is_text_file(path):
+            return
+        if is_orchestration_artifact_path(path, target_dir):
             return
         key = str(path)
         if key in seen:
@@ -972,13 +1088,7 @@ def choose_suggest_files(target_dir: Path, limit: int = 8) -> list[Path]:
     return selected[:limit]
 
 
-def collect_suggest_evidence(target_dir: Path, blueprint_path: Path) -> dict:
-    blueprint_text = read_text(blueprint_path)
-    raw_spec = require_dict(parse_blueprint_block(blueprint_text, SPEC_MARKERS, "spec"), "spec")
-    spec = normalize_spec(raw_spec)
-    metadata = load_generated_metadata(blueprint_text)
-    repo_hints = collect_repo_hints(target_dir)
-    selected_files = choose_suggest_files(target_dir)
+def collect_file_snippets(target_dir: Path, selected_files: list[Path]) -> list[dict]:
     file_snippets = []
     for path in selected_files:
         text = read_text_limited(path)
@@ -990,13 +1100,35 @@ def collect_suggest_evidence(target_dir: Path, blueprint_path: Path) -> dict:
                 "content": text,
             }
         )
+    return file_snippets
+
+
+def collect_suggest_evidence(target_dir: Path, blueprint_path: Path) -> dict:
+    blueprint_text = read_text(blueprint_path)
+    raw_spec = require_dict(parse_blueprint_block(blueprint_text, SPEC_MARKERS, "spec"), "spec")
+    spec = normalize_spec(raw_spec)
+    metadata = load_generated_metadata(blueprint_text)
+    repo_hints = collect_repo_hints(target_dir)
+    orchestration_files = collect_file_snippets(target_dir, choose_orchestration_files(target_dir))
+    repo_files = collect_file_snippets(target_dir, choose_repo_heuristic_files(target_dir))
     evidence = {
         "rawSpec": raw_spec,
         "spec": spec,
         "metadata": metadata,
         "repoHints": repo_hints,
         "topLevelEntries": list_top_level_entries(target_dir),
-        "files": file_snippets,
+        "orchestrationFiles": orchestration_files,
+        "repoFiles": repo_files,
+        "evidenceTiers": {
+            "orchestration": {
+                "weight": 3,
+                "files": [item["path"] for item in orchestration_files],
+            },
+            "repo": {
+                "weight": 1,
+                "files": [item["path"] for item in repo_files],
+            },
+        },
     }
     evidence["repoBrief"] = build_repo_brief(target_dir, evidence)
     return evidence
@@ -1010,13 +1142,29 @@ def has_python_shebang(path: Path) -> bool:
     return "python" in first_line.lower()
 
 
+def python_entrypoint_candidates(target_dir: Path) -> list[Path]:
+    candidates = [target_dir / target_dir.name]
+    candidates.extend(target_dir / relative_path for relative_path in SUGGEST_SOURCE_CANDIDATES)
+    candidates.extend(sorted(path for path in target_dir.iterdir() if path.is_file() and path.suffix == ""))
+    candidates.extend(sorted(target_dir.glob("*.py")))
+
+    unique = []
+    seen = set()
+    for path in candidates:
+        key = str(path)
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(path)
+    return unique
+
+
 def infer_primary_ecosystem(target_dir: Path) -> tuple[str, str]:
-    repo_entrypoint = target_dir / target_dir.name
     if (
         (target_dir / "pyproject.toml").exists()
         or (target_dir / "setup.py").exists()
         or any(target_dir.glob("*.py"))
-        or has_python_shebang(repo_entrypoint)
+        or any(has_python_shebang(path) for path in python_entrypoint_candidates(target_dir))
     ):
         return ("python", "Python repo markers detected.")
     if (target_dir / "package.json").exists():
@@ -1029,19 +1177,44 @@ def infer_primary_ecosystem(target_dir: Path) -> tuple[str, str]:
 
 
 def detect_python_entrypoint(target_dir: Path) -> str:
-    repo_entrypoint = target_dir / target_dir.name
-    if has_python_shebang(repo_entrypoint):
-        return f"python3 -m py_compile ./{repo_entrypoint.name}"
+    for path in python_entrypoint_candidates(target_dir):
+        if has_python_shebang(path):
+            return f"python3 -m py_compile ./{path.relative_to(target_dir)}"
     for path in sorted(target_dir.glob("*.py")):
-        return f"python3 -m py_compile ./{path.name}"
+        return f"python3 -m py_compile ./{path.relative_to(target_dir)}"
     return ""
+
+
+def detect_orchestration_artifacts(orchestration_files: list[dict]) -> list[str]:
+    artifacts = []
+    file_paths = [item["path"] for item in orchestration_files]
+    roots = {
+        "init-orch.md": lambda path: path == "init-orch.md",
+        "AGENTS.md": lambda path: path == "AGENTS.md",
+        ".cursor/": lambda path: path.startswith(".cursor/"),
+        ".claude/": lambda path: path.startswith(".claude/"),
+        "orch/": lambda path: path.startswith("orch/"),
+    }
+    for label, matcher in roots.items():
+        if any(matcher(path) for path in file_paths):
+            artifacts.append(label)
+    return artifacts
+
+
+def dedupe_nonempty(items: list[str]) -> list[str]:
+    unique = []
+    for item in items:
+        if item and item not in unique:
+            unique.append(item)
+    return unique
 
 
 def build_repo_brief(target_dir: Path, evidence: dict) -> dict:
     spec = evidence["spec"]
-    files = evidence["files"]
+    orchestration_files = evidence["orchestrationFiles"]
+    repo_files = evidence["repoFiles"]
     readme_paragraph = ""
-    for item in files:
+    for item in repo_files:
         if item["path"].lower().startswith("readme"):
             readme_paragraph = first_meaningful_paragraph(item["content"])
             if readme_paragraph:
@@ -1049,35 +1222,101 @@ def build_repo_brief(target_dir: Path, evidence: dict) -> dict:
 
     ecosystem, ecosystem_reason = infer_primary_ecosystem(target_dir)
     package_scripts = parse_package_scripts(target_dir / "package.json")
-    likely_checks = []
+    code_checks = []
     if ecosystem == "python":
         python_check = detect_python_entrypoint(target_dir)
         if python_check:
-            likely_checks.append(python_check)
+            code_checks.append(python_check)
         if evidence["repoHints"]["suggestedCheck"] == "pytest":
-            likely_checks.append("pytest")
+            code_checks.append("pytest")
     elif ecosystem == "javascript":
         if "test" in package_scripts:
-            likely_checks.append("npm test")
+            code_checks.append("npm test")
+        elif "lint" in package_scripts:
+            code_checks.append("npm run lint")
         elif evidence["repoHints"]["suggestedCheck"]:
-            likely_checks.append(evidence["repoHints"]["suggestedCheck"])
+            code_checks.append(evidence["repoHints"]["suggestedCheck"])
     elif ecosystem == "rust":
-        likely_checks.append("cargo test")
+        code_checks.append("cargo test")
     elif ecosystem == "go":
-        likely_checks.append("go test ./...")
+        code_checks.append("go test ./...")
     elif evidence["repoHints"]["suggestedCheck"]:
-        likely_checks.append(evidence["repoHints"]["suggestedCheck"])
+        code_checks.append(evidence["repoHints"]["suggestedCheck"])
 
-    if any(item["path"].endswith(".md") for item in files):
-        likely_checks.append("Review changed docs for broken links, formatting, and clarity.")
+    docs_checks = []
+    if (
+        spec["domainPreset"] == "docs"
+        or any(
+            path.lower().startswith("docs/") or path.lower().startswith("readme") or path.lower().endswith(".md")
+            for path in [item["path"] for item in repo_files]
+        )
+    ):
+        docs_checks.append("Review changed docs for broken links, formatting, and clarity.")
 
-    unique_checks = []
-    for check in likely_checks:
-        if check and check not in unique_checks:
-            unique_checks.append(check)
+    orchestration_artifacts = detect_orchestration_artifacts(orchestration_files)
+    existing_targets = dedupe_nonempty(list(spec["targets"]) + list(evidence["metadata"]["renderedTargets"]))
+    targets_text = ", ".join(existing_targets) if existing_targets else "tool-specific"
+    summary = spec["project"]["summary"]
+    mission = spec["project"]["mission"]
+    meaningful_summary = not looks_like_generic_orchestration_text(summary)
+    meaningful_mission = not looks_like_generic_orchestration_text(mission)
+    agents_mission = ""
+    for item in orchestration_files:
+        if item["path"] != "AGENTS.md":
+            continue
+        agents_mission = first_descriptive_line(extract_markdown_section(item["content"], "Mission"))
+        if agents_mission:
+            break
+
+    repo_identity = ""
+    repo_identity_confidence = "low"
+    identity_notes = []
+    if meaningful_summary:
+        repo_identity = summary
+        repo_identity_confidence = "high"
+        identity_notes.append("Current init-orch summary already carries repo-specific intent.")
+    elif readme_paragraph and any(keyword in normalize_compare_text(readme_paragraph) for keyword in ("orchestration", "agent", "workflow", "cursor", "claude")):
+        repo_identity = readme_paragraph
+        repo_identity_confidence = "medium"
+        identity_notes.append("README reinforces an orchestration-focused repository identity.")
+    elif len(orchestration_artifacts) >= 2:
+        repo_identity = (
+            f"Repository with an existing orchestration contract spanning {', '.join(orchestration_artifacts)} "
+            f"and generated setup for {targets_text}."
+        )
+        repo_identity_confidence = "medium"
+        identity_notes.append("Existing orchestration artifacts outweigh shallow repo-shape heuristics.")
+    elif readme_paragraph:
+        repo_identity = readme_paragraph
+        repo_identity_confidence = "high"
+        identity_notes.append("README provided the clearest repository description.")
+    else:
+        repo_identity = f"{target_dir.name}: practical, reviewable progress with agent help."
+        identity_notes.append("No strong repo description found, so the brief fell back to a generic summary.")
+
+    workflow_identity = ""
+    workflow_identity_confidence = "low"
+    if meaningful_mission:
+        workflow_identity = mission
+        workflow_identity_confidence = "high"
+    elif agents_mission and not looks_like_generic_orchestration_text(agents_mission):
+        workflow_identity = agents_mission
+        workflow_identity_confidence = "medium"
+    elif len(orchestration_artifacts) >= 2:
+        workflow_identity = (
+            f"Keep the orchestration contract reviewable and aligned across {targets_text} outputs while staying safe on existing repositories."
+        )
+        workflow_identity_confidence = "medium"
+    elif spec["workflowPreset"] == "research":
+        workflow_identity = "Help humans explore, synthesize, and refine ideas without over-committing to premature implementation."
+        workflow_identity_confidence = "medium"
+    else:
+        workflow_identity = "Keep human and agent work aligned around practical, reviewable improvements."
 
     repo_shape = "generic software repo"
-    if ecosystem == "python" and readme_paragraph:
+    if len(orchestration_artifacts) >= 2:
+        repo_shape = "orchestration-aware tooling repo"
+    elif ecosystem == "python" and readme_paragraph:
         repo_shape = "python tooling or CLI repo"
     elif spec["domainPreset"] == "docs":
         repo_shape = "documentation-oriented repo"
@@ -1092,16 +1331,27 @@ def build_repo_brief(target_dir: Path, evidence: dict) -> dict:
         "ecosystem": ecosystem,
         "ecosystemReason": ecosystem_reason,
         "repoShape": repo_shape,
-        "likelyChecks": unique_checks,
+        "repoIdentity": repo_identity,
+        "repoIdentityConfidence": repo_identity_confidence,
+        "workflowIdentity": workflow_identity,
+        "workflowIdentityConfidence": workflow_identity_confidence,
+        "identityNotes": identity_notes,
+        "orchestrationArtifacts": orchestration_artifacts,
+        "codeChecks": dedupe_nonempty(code_checks),
+        "docsChecks": dedupe_nonempty(docs_checks),
         "suggestedDomain": evidence["repoHints"]["suggestedDomain"],
         "workspaceMarkers": evidence["repoHints"]["workspaceMarkers"],
         "ciMarkers": evidence["repoHints"]["ciMarkers"],
         "topLevelEntries": evidence["topLevelEntries"],
-        "selectedFiles": [item["path"] for item in files],
+        "orchestrationFiles": [item["path"] for item in orchestration_files],
+        "repoFiles": [item["path"] for item in repo_files],
+        "evidenceTiers": evidence["evidenceTiers"],
     }
 
 
 def suggest_summary(repo_brief: dict, spec: dict) -> tuple[str, str]:
+    if repo_brief["repoIdentity"]:
+        return repo_brief["repoIdentity"], repo_brief["repoIdentityConfidence"]
     if repo_brief["readmeParagraph"]:
         return repo_brief["readmeParagraph"], "high"
     ecosystem = repo_brief["ecosystem"]
@@ -1127,12 +1377,9 @@ def suggest_summary(repo_brief: dict, spec: dict) -> tuple[str, str]:
 
 
 def suggest_mission(repo_brief: dict, spec: dict) -> tuple[str, str]:
+    if repo_brief["workflowIdentity"]:
+        return repo_brief["workflowIdentity"], repo_brief["workflowIdentityConfidence"]
     ecosystem = repo_brief["ecosystem"]
-    if ecosystem == "python" and repo_brief["repoName"] == "init-orch":
-        return (
-            "Keep orchestration practical, reviewable, and safe on existing repositories while making the setup fast to initialize and maintain.",
-            "high",
-        )
     if ecosystem == "python":
         return (
             "Let humans and agents improve the repository through small, reviewable changes with clear verification and explicit safety boundaries.",
@@ -1154,7 +1401,9 @@ def suggest_success_criteria(repo_brief: dict, spec: dict) -> tuple[list[str], s
         "Ship changes that are easy to review and verify.",
         "Keep orchestration guidance easy for humans to update.",
     ]
-    if repo_brief["likelyChecks"]:
+    if repo_brief["orchestrationArtifacts"]:
+        items.append("Keep the orchestration blueprint and generated artifacts aligned.")
+    if repo_brief["codeChecks"]:
         items.append("Name the canonical repo checks explicitly in the orchestration.")
     if repo_brief["workspaceMarkers"]:
         items.append("Make path scoping explicit so agents know which parts of the repo to touch.")
@@ -1171,25 +1420,23 @@ def suggest_success_criteria(repo_brief: dict, spec: dict) -> tuple[list[str], s
 
 def build_verification_suggestions(repo_brief: dict, spec: dict) -> tuple[list[dict], str]:
     suggested = []
-    if repo_brief["likelyChecks"]:
+    if repo_brief["codeChecks"]:
         preferred_change_type = preferred_change_types_for_refine(spec)[0]
         suggested.append(
             {
                 "changeType": preferred_change_type,
                 "required": [
-                    f"Run `{repo_brief['likelyChecks'][0]}` or explain the closest equivalent manual validation."
+                    f"Run `{repo_brief['codeChecks'][0]}` or explain the closest equivalent manual validation."
                 ],
             }
         )
-    if any(path.endswith(".md") for path in repo_brief["selectedFiles"]) and not any(
+    if repo_brief["docsChecks"] and not any(
         item["changeType"] == "docs" for item in spec["verification"]
     ):
         suggested.append(
             {
                 "changeType": "docs",
-                "required": [
-                    "Review changed docs for broken links, formatting issues, and obvious clarity problems."
-                ],
+                "required": [repo_brief["docsChecks"][0]],
             }
         )
     return suggested, ("high" if suggested else "low")
@@ -1220,9 +1467,9 @@ def generate_suggestions(repo_brief: dict, raw_spec: dict, spec: dict) -> dict:
             verification_updates.append(item)
 
     questions = []
-    if not repo_brief["readmeParagraph"]:
+    if not repo_brief["readmeParagraph"] and repo_brief["repoIdentityConfidence"] == "low":
         questions.append("Should the project summary emphasize the runtime, the workflow model, or the target ecosystems most strongly?")
-    if not repo_brief["likelyChecks"]:
+    if not repo_brief["codeChecks"]:
         questions.append("What is the canonical check this repo should run after code changes?")
 
     preset_suggestion = None
@@ -1253,11 +1500,18 @@ def format_suggestion_report(repo_brief: dict, suggestions: dict, spec: dict) ->
         "Zubeldia suggest",
         "",
         "Detected:",
+        f"- orchestration artifacts: {', '.join(repo_brief['orchestrationArtifacts']) if repo_brief['orchestrationArtifacts'] else 'none detected'}",
         f"- repo shape: {repo_brief['repoShape']}",
+        f"- repo identity: {repo_brief['repoIdentity']} ({repo_brief['repoIdentityConfidence']})",
+        f"- workflow identity: {repo_brief['workflowIdentity']} ({repo_brief['workflowIdentityConfidence']})",
         f"- ecosystem: {repo_brief['ecosystem']} ({repo_brief['ecosystemReason']})",
-        f"- likely checks: {', '.join(repo_brief['likelyChecks']) if repo_brief['likelyChecks'] else 'none detected'}",
-        f"- files sampled: {', '.join(repo_brief['selectedFiles']) if repo_brief['selectedFiles'] else 'none'}",
+        f"- code checks: {', '.join(repo_brief['codeChecks']) if repo_brief['codeChecks'] else 'none detected'}",
+        f"- docs checks: {', '.join(repo_brief['docsChecks']) if repo_brief['docsChecks'] else 'none detected'}",
+        f"- orchestration files sampled: {', '.join(repo_brief['orchestrationFiles']) if repo_brief['orchestrationFiles'] else 'none'}",
+        f"- repo files sampled: {', '.join(repo_brief['repoFiles']) if repo_brief['repoFiles'] else 'none'}",
     ]
+    if repo_brief["identityNotes"]:
+        lines.append(f"- identity notes: {' '.join(repo_brief['identityNotes'])}")
 
     if suggestions["project"] or suggestions["verification"] or suggestions["presetSuggestion"]:
         lines.extend(["", "Suggested updates:"])

@@ -64,7 +64,7 @@ If you want help filling the hardest fields in `init-orch.md`, run:
 init-orch --suggest
 ```
 
-This samples a small amount of repo evidence and proposes updates for:
+This samples a bounded amount of repo evidence, prioritizes existing orchestration artifacts such as `init-orch.md`, `AGENTS.md`, `.cursor/`, `.claude/`, and `orch/`, and proposes updates for:
 
 - `project.summary`
 - `project.mission`

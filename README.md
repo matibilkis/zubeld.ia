@@ -6,6 +6,38 @@ Project's name on [Osvaldo Zubeldía](https://es.wikipedia.org/wiki/Osvaldo_Zube
 
 Instead of hand-editing `.cursor/`, `.claude/`, `AGENTS.md`, and related config files, you describe the workflow once in `init-orch.md` and generate the tool-specific files from that blueprint.
 
+## Quickstart
+
+The shortest useful path is:
+
+```bash
+init-orch
+init-orch --suggest
+init-orch --all
+init-orch --refine
+init-orch --review
+```
+
+## When To Use What
+
+| Command | Use it when | What it does |
+| --- | --- | --- |
+| `init-orch` | You are starting from scratch | Creates the first draft of `init-orch.md` |
+| `init-orch --suggest` | You want a better first ansatz | Proposes repo-aware updates for summary, mission, success criteria, and verification |
+| `init-orch --all` | You are ready to compile the setup | Generates the tool-specific files from `init-orch.md` |
+| `init-orch --refine` | The first render exists and you want repo-specific detail | Adds checks, sensitive paths, and conventions back into the spec |
+| `init-orch --review` | The setup feels stale or off | Prints practical recommendations without rewriting files |
+
+## Workflow Diagram
+
+```mermaid
+flowchart LR
+    Bootstrap[init-orch] --> Suggest[--suggest]
+    Suggest --> Compile[--all]
+    Compile --> Refine[--refine]
+    Refine --> Review[--review]
+```
+
 ## The Product Loop
 
 ### Bootstrap
@@ -64,7 +96,7 @@ If you want a better first ansatz before rendering, ask for a repo-aware proposa
 init-orch --suggest
 ```
 
-This samples a small amount of repo evidence and proposes updates for `project.summary`, `project.mission`, `project.successCriteria`, and `verification`. It prints the proposal first and only applies it if you confirm.
+This samples a bounded amount of repo evidence, prioritizes existing orchestration artifacts such as `init-orch.md`, `AGENTS.md`, `.cursor/`, `.claude/`, and `orch/`, and then proposes updates for `project.summary`, `project.mission`, `project.successCriteria`, and `verification`. It prints the proposal first and only applies it if you confirm.
 
 ### Refine
 
@@ -176,7 +208,7 @@ init-orch --refine
 init-orch --review
 ```
 
-If you want a longer walkthrough, see `docs/quickstart.md`.
+If you want a full walkthrough, see `docs/tutorial-101.md`. For the step-by-step reference version, see `docs/quickstart.md`.
 
 ## Roadmap
 
