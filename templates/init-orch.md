@@ -6,7 +6,17 @@
 
 Preset: `engineering-generic`. Workflow `engineering`: Long-term delivery workflow focused on maintainable, production-ready changes. Domain `generic`: General software projects such as libraries, APIs, backends, and internal services.
 
-Edit the JSON block below to describe the orchestration structure you want for this repository.
+## Preset Provenance
+
+`engineering-generic` supplied the starting draft for this file. Workflow `engineering` sets the working-style bias and domain `generic` sets the repo-shape bias.
+
+- `preset`, `workflowPreset`, and `domainPreset` record that starting point.
+- The initial defaults in the JSON block below came from the preset plus any answers you gave during bootstrap.
+- Preset-influenced areas usually include `project`, `responseStyle`, `workflow`, `verification`, `toolPolicy`, and the guidance sections in this file.
+- Nothing in the spec is locked. Edit any field directly when the repository needs something different.
+- Keep `project.riskPosture` separate from the preset when you only want to change caution level.
+
+Edit the JSON block below freely to describe the orchestration structure you want for this repository.
 
 ## What To Fill In First
 
@@ -77,7 +87,7 @@ This mainly influences:
 - Treat maintainability, approval gates, and production-ready verification as part of Priority 1.
 - Stay with the global order unless the repository has unusual domain-specific constraints.
 
-<!-- Edit the JSON spec below. Everything else is generated from it. -->
+<!-- Edit the JSON spec below freely. Every field is editable. Everything else is generated from it. -->
 
 <!-- init-orch:spec:start -->
 ```json
@@ -99,6 +109,21 @@ This mainly influences:
     ],
     "riskPosture": "moderate",
     "maturity": "growing"
+  },
+  "responseStyle": {
+    "tone": "direct",
+    "verbosity": "balanced",
+    "structure": "answer-first",
+    "defaultLength": "short",
+    "rules": [
+      "Lead with the answer or recommendation.",
+      "Keep responses concise unless the user asks for more detail.",
+      "Use bullets only when the content is naturally list-shaped."
+    ],
+    "examples": [
+      "Do: `Bug in auth middleware. Expiry check should use <=. Fix:`",
+      "Avoid: `Sure! I'd be happy to help. The issue may be caused by...`"
+    ]
   },
   "targets": [
     "cursor",

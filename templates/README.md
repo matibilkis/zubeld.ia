@@ -8,6 +8,7 @@ The checked-in `templates/init-orch.md` mirrors the default `engineering-generic
 
 The richer blueprint now supports:
 - workflow and verification guidance
+- response-style guidance for tone, verbosity, structure, and examples
 - evaluator recommendations
 - import declarations for MCPs and external capability packs
 - explicit security warnings around powerful permissions

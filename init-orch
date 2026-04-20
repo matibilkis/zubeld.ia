@@ -9,6 +9,7 @@ import hashlib
 import json
 import re
 import sys
+import tempfile
 import textwrap
 from datetime import datetime, timezone
 from pathlib import Path
@@ -207,6 +208,12 @@ VALID_PRESETS = tuple(
     for domain in VALID_DOMAIN_PRESETS
 )
 DEFAULT_PRESET = f"{DEFAULT_WORKFLOW_PRESET}-{DEFAULT_DOMAIN_PRESET}"
+RECOMMENDED_PRESETS = [
+    ("engineering-generic", "Most software repos and uncertain starting points."),
+    ("research-docs", "Exploratory, synthesis-heavy, or writing-heavy work."),
+    ("engineering-web-app", "UI, product, or full-stack application work."),
+    ("poc-data-science", "Notebook, experiment, and model-heavy exploration."),
+]
 SECURITY_WARNING = (
     "Granting edit, write, delete, shell, network, or external tool access can expose "
     "code, secrets, and local data to irreversible changes or exfiltration. Use least-"
@@ -265,12 +272,16 @@ def parse_args() -> argparse.Namespace:
             """\
             Examples:
               init-orch
+              init-orch --list-presets
+              init-orch --explain-preset engineering-web-app
               init-orch --preset research-docs
               init-orch --init
               init-orch --preset engineering-web-app --init
+              init-orch --parity
               init-orch --cursor
               init-orch --claude
               init-orch --all
+              init-orch --all --dry-run
               init-orch --review
               init-orch --refine
               init-orch --suggest
@@ -279,8 +290,12 @@ def parse_args() -> argparse.Namespace:
 
             Notes:
               - On first run in a terminal, init-orch can guide you through a short bootstrap flow.
+              - A preset uses `workflow-domain`: workflow = working style, domain = repo shape bias.
+              - If you are unsure, start with engineering-generic, research-docs, engineering-web-app, or poc-data-science.
               - init-orch.md is the only high-level file you edit directly.
               - Rendering compiles that spec into tool-specific files and stops for confirmation if it detects existing owned-looking structure.
+              - Use --dry-run with render commands to preview creates and updates before writing files.
+              - Parity mode explains what is shared vs target-specific across Cursor and Claude and calls out drift.
               - Suggest mode proposes better summary, mission, success criteria, and verification from a small amount of repo evidence.
               - Refinement collects repo-specific details after the first render.
               - Review mode prints practical recommendations without rewriting your setup.
@@ -293,11 +308,21 @@ def parse_args() -> argparse.Namespace:
         type=parse_preset_arg,
         default=DEFAULT_PRESET,
         help=(
-            "Bootstrap preset for the first init-orch.md in workflow-domain form. "
-            f"Workflows: {', '.join(VALID_WORKFLOW_PRESETS)}. "
-            f"Domains: {', '.join(VALID_DOMAIN_PRESETS)}. "
-            f"Default: {DEFAULT_PRESET}."
+            "Bootstrap preset for the first init-orch.md in `workflow-domain` form. "
+            "The workflow controls working style; the domain controls repo-shape bias. "
+            f"Use `--list-presets` or `--explain-preset <name>` if you are unsure. Default: {DEFAULT_PRESET}."
         ),
+    )
+    parser.add_argument(
+        "--list-presets",
+        action="store_true",
+        help="List workflow presets, domain presets, composed presets, and recommended defaults.",
+    )
+    parser.add_argument(
+        "--explain-preset",
+        metavar="PRESET",
+        type=parse_preset_arg,
+        help="Explain one preset in plain language, for example `engineering-web-app`.",
     )
     parser.add_argument(
         "--init",
@@ -308,6 +333,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--claude", action="store_true", help="Render Claude scaffolding.")
     parser.add_argument("--all", action="store_true", help="Render both Cursor and Claude.")
     parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview which generated files would change without writing them.",
+    )
+    parser.add_argument(
         "--confirm-existing",
         action="store_true",
         help="Proceed when init-orch detects existing owned-looking structure during render.",
@@ -316,6 +346,11 @@ def parse_args() -> argparse.Namespace:
         "--review",
         action="store_true",
         help="Print practical setup recommendations without rewriting files.",
+    )
+    parser.add_argument(
+        "--parity",
+        action="store_true",
+        help="Explain what is shared vs target-specific across Cursor and Claude, and surface drift.",
     )
     parser.add_argument(
         "--suggest",
@@ -377,6 +412,16 @@ def ensure_line_in_file(path: Path, line: str) -> None:
     if line not in lines:
         lines.append(line)
         path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+
+
+def updated_line_content(path: Path, line: str) -> str:
+    if path.exists():
+        lines = path.read_text(encoding="utf-8").splitlines()
+    else:
+        lines = []
+    if line not in lines:
+        lines.append(line)
+    return "\n".join(lines).rstrip() + "\n"
 
 
 def extract_block(text: str, markers: tuple[str, str], label: str) -> str:
@@ -503,6 +548,89 @@ def preset_priority_emphasis(workflow: str, domain: str) -> list[str]:
         "multimedia": "Move provenance, review quality, and publication checks into Priority 1 verification.",
     }
     return [notes[workflow], notes[domain]]
+
+
+def recommended_preset_lines() -> list[str]:
+    return [f"`{preset}`: {reason}" for preset, reason in RECOMMENDED_PRESETS]
+
+
+def list_presets_report() -> str:
+    lines = [
+        "Zubeldia presets",
+        "",
+        "Workflow presets:",
+    ]
+    lines.extend(f"- `{name}`: {description}" for name, description in WORKFLOW_PRESET_DESCRIPTIONS.items())
+    lines.extend(["", "Domain presets:"])
+    lines.extend(f"- `{name}`: {description}" for name, description in DOMAIN_PRESET_DESCRIPTIONS.items())
+    lines.extend(["", "Composed presets:"])
+    for preset in sorted(VALID_PRESETS):
+        _, workflow, domain = normalize_composed_preset(preset)
+        default_note = " [default]" if preset == DEFAULT_PRESET else ""
+        lines.append(f"- `{preset}`{default_note}: workflow `{workflow}` + domain `{domain}`")
+    lines.extend(["", "If you are unsure, start with:"])
+    lines.extend(f"- {entry}" for entry in recommended_preset_lines())
+    lines.extend(
+        [
+            "",
+            "Next step:",
+            "Use `init-orch --explain-preset <name>` for a closer read before bootstrapping.",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def explain_preset_report(preset: str) -> str:
+    preset_name, workflow, domain = normalize_composed_preset(preset)
+    lines = [
+        "Zubeldia preset explain",
+        "",
+        f"- preset: `{preset_name}`{' [default]' if preset_name == DEFAULT_PRESET else ''}",
+        f"- workflow `{workflow}`: {WORKFLOW_PRESET_DESCRIPTIONS[workflow]}",
+        f"- domain `{domain}`: {DOMAIN_PRESET_DESCRIPTIONS[domain]}",
+        f"- combined meaning: {preset_summary(workflow, domain)}",
+        "- preset role: starting draft only; every field in `init-orch.md` stays editable.",
+        "- risk posture: separate from the preset so you can tune caution independently.",
+        "",
+        "Default emphasis:",
+    ]
+    lines.extend(f"- {entry}" for entry in preset_priority_emphasis(workflow, domain))
+    lines.extend(["", "Good default when:"])
+    if preset_name == "engineering-generic":
+        lines.append("- You want the broad default for an unfamiliar software repository.")
+    elif preset_name == "research-docs":
+        lines.append("- You expect synthesis, evidence review, or documentation work to dominate.")
+    elif preset_name == "engineering-web-app":
+        lines.append("- You expect UI behavior, user flows, or browser-verified changes to matter.")
+    elif preset_name == "poc-data-science":
+        lines.append("- You expect quick experiments, notebooks, or model iteration to matter most.")
+    else:
+        lines.append(f"- You want `{workflow}` working style with `{domain}` repository bias.")
+    lines.extend(
+        [
+            "",
+            "Recommended bootstrap command:",
+            f"`init-orch --preset {preset_name} --no-interactive`",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def render_preset_provenance_guidance(preset_name: str, workflow: str, domain: str) -> list[str]:
+    return [
+        "## Preset Provenance",
+        "",
+        (
+            f"`{preset_name}` supplied the starting draft for this file. "
+            f"Workflow `{workflow}` sets the working-style bias and domain `{domain}` sets the repo-shape bias."
+        ),
+        "",
+        "- `preset`, `workflowPreset`, and `domainPreset` record that starting point.",
+        "- The initial defaults in the JSON block below came from the preset plus any answers you gave during bootstrap.",
+        "- Preset-influenced areas usually include `project`, `responseStyle`, `workflow`, `verification`, `toolPolicy`, and the guidance sections in this file.",
+        "- Nothing in the spec is locked. Edit any field directly when the repository needs something different.",
+        "- Keep `project.riskPosture` separate from the preset when you only want to change caution level.",
+    ]
 
 
 def render_priority_guidance(workflow: str, domain: str) -> list[str]:
@@ -650,6 +778,21 @@ def load_generated_metadata(blueprint_text: str) -> dict:
     metadata["workflowPreset"] = raw_metadata.get("workflowPreset")
     metadata["domainPreset"] = raw_metadata.get("domainPreset")
     return metadata
+
+
+def load_saved_recommendations(blueprint_text: str) -> dict:
+    try:
+        raw_recommendations = parse_blueprint_block(blueprint_text, RECOMMENDATION_MARKERS, "recommendations")
+    except ValueError:
+        return {"version": 1, "summary": "", "items": []}
+    if not isinstance(raw_recommendations, dict):
+        return {"version": 1, "summary": "", "items": []}
+    items = raw_recommendations.get("items", [])
+    return {
+        "version": raw_recommendations.get("version", 1),
+        "summary": normalize_string(raw_recommendations.get("summary"), ""),
+        "items": items if isinstance(items, list) else [],
+    }
 
 
 def unique_paths(paths: list[Path]) -> list[Path]:
@@ -809,23 +952,32 @@ def collect_repo_hints(target_dir: Path) -> dict:
         label for relative_path, label in WORKSPACE_MARKERS if (target_dir / relative_path).exists()
     ]
 
-    test_markers = []
-    suggested_check = ""
-    if (target_dir / "pytest.ini").exists() or (target_dir / "tox.ini").exists():
-        test_markers.append("pytest")
-        suggested_check = suggested_check or "pytest"
-    if (target_dir / "package.json").exists():
-        test_markers.append("npm test")
-        suggested_check = suggested_check or "npm test"
+    package_script_checks, package_docs_checks, script_test_markers = collect_package_script_validation_commands(target_dir)
+    ci_code_checks, ci_docs_checks = collect_ci_validation_commands(target_dir)
+    python_checks = collect_python_validation_commands(target_dir)
+
+    make_targets = parse_makefile_targets(target_dir / "Makefile")
+    make_checks = []
+    for target in ("test", "check", "verify", "lint"):
+        if target in make_targets:
+            make_checks.append(f"make {target}")
+
+    ecosystem_fallbacks = []
     if (target_dir / "go.mod").exists():
-        test_markers.append("go test ./...")
-        suggested_check = suggested_check or "go test ./..."
+        ecosystem_fallbacks.append("go test ./...")
     if (target_dir / "Cargo.toml").exists():
-        test_markers.append("cargo test")
-        suggested_check = suggested_check or "cargo test"
-    if (target_dir / "Makefile").exists():
-        test_markers.append("make test")
-        suggested_check = suggested_check or "make test"
+        ecosystem_fallbacks.append("cargo test")
+
+    code_checks = rank_commands(
+        package_script_checks + ci_code_checks + make_checks + python_checks + ecosystem_fallbacks,
+        code_command_score,
+    )
+    docs_checks = rank_commands(package_docs_checks + ci_docs_checks, docs_command_score)
+    test_markers = dedupe_nonempty(
+        script_test_markers
+        + [command for command in code_checks if code_command_score(command) >= 100]
+    )
+    suggested_check = code_checks[0] if code_checks else ""
 
     suggested_domain = None
     if (target_dir / "package.json").exists() and any(
@@ -846,6 +998,8 @@ def collect_repo_hints(target_dir: Path) -> dict:
         "workspaceMarkers": workspace_markers,
         "testMarkers": sorted(set(test_markers)),
         "suggestedCheck": suggested_check,
+        "suggestedChecks": code_checks,
+        "docsChecks": docs_checks,
         "suggestedDomain": suggested_domain,
     }
 
@@ -1017,6 +1171,250 @@ def parse_package_scripts(path: Path) -> dict:
         return {}
     scripts = payload.get("scripts", {})
     return scripts if isinstance(scripts, dict) else {}
+
+
+def detect_package_manager(target_dir: Path) -> str:
+    if (target_dir / "pnpm-lock.yaml").exists() or (target_dir / "pnpm-workspace.yaml").exists():
+        return "pnpm"
+    if (target_dir / "yarn.lock").exists():
+        return "yarn"
+    if (target_dir / "bun.lockb").exists() or (target_dir / "bun.lock").exists():
+        return "bun"
+    return "npm"
+
+
+def package_script_command(package_manager: str, script_name: str) -> str:
+    if package_manager == "npm":
+        return "npm test" if script_name == "test" else f"npm run {script_name}"
+    return f"{package_manager} {script_name}"
+
+
+def looks_like_placeholder_package_script(command: str) -> bool:
+    normalized = normalize_compare_text(command)
+    return "no test specified" in normalized or normalized.startswith("echo ") and "exit 1" in normalized
+
+
+def docs_command_score(command: str) -> int:
+    normalized = normalize_compare_text(command)
+    if any(keyword in normalized for keyword in ("vale", "markdownlint", "remark", "lychee", "linkinator", "linkchecker")):
+        return 100
+    if "mkdocs" in normalized or "sphinx-build" in normalized or "mdbook test" in normalized:
+        return 90
+    return 0
+
+
+def code_command_score(command: str) -> int:
+    normalized = normalize_compare_text(command)
+    score = 0
+    if normalized.startswith(("make ", "npm ", "pnpm ", "yarn ", "bun ", "tox", "nox", "poetry run ", "uv run ")):
+        score += 10
+    if any(
+        marker in normalized
+        for marker in (
+            "pytest",
+            "python -m pytest",
+            "go test",
+            "cargo test",
+            " manage.py test",
+            "npm test",
+            "pnpm test",
+            "yarn test",
+            "bun test",
+            "vitest",
+            "jest",
+            "make test",
+            "make check",
+            "make verify",
+            "tox",
+            "nox",
+        )
+    ):
+        score += 100
+    elif any(marker in normalized for marker in ("ruff check", "mypy", "pyright", "go vet", "cargo clippy", "eslint", "tsc", "lint")):
+        score += 75
+    elif any(marker in normalized for marker in ("py_compile", "cargo check", "build")):
+        score += 45
+    return score
+
+
+def rank_commands(commands: list[str], score_fn) -> list[str]:
+    scored = []
+    seen = set()
+    for index, command in enumerate(commands):
+        normalized = normalize_compare_text(command)
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        scored.append((-score_fn(command), index, command))
+    scored.sort()
+    return [command for _score, _index, command in scored]
+
+
+def parse_makefile_targets(path: Path) -> set[str]:
+    if not path.exists():
+        return set()
+    try:
+        text = read_text(path)
+    except UnicodeDecodeError:
+        return set()
+    targets = set()
+    for line in text.splitlines():
+        if not line or line.startswith(("\t", " ", "#", ".")):
+            continue
+        match = re.match(r"^([A-Za-z0-9_.-]+)\s*:", line)
+        if match:
+            targets.add(match.group(1))
+    return targets
+
+
+def extract_ci_run_commands(text: str) -> list[str]:
+    commands = []
+    lines = text.splitlines()
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        match = re.match(r"^(\s*)(?:-\s*)?run:\s*(.*)$", line)
+        if not match:
+            index += 1
+            continue
+        indent = len(match.group(1))
+        value = match.group(2).strip()
+        if value in {"|", ">"}:
+            index += 1
+            block_lines = []
+            while index < len(lines):
+                nested = lines[index]
+                if not nested.strip():
+                    index += 1
+                    continue
+                nested_indent = len(nested) - len(nested.lstrip(" "))
+                if nested_indent <= indent:
+                    break
+                block_lines.append(nested.strip())
+                index += 1
+            candidate_text = "\n".join(block_lines)
+        else:
+            candidate_text = value
+            index += 1
+        for chunk in re.split(r"\s*(?:&&|;|\|\|)\s*", candidate_text):
+            cleaned = chunk.strip()
+            if cleaned:
+                commands.append(cleaned)
+    return commands
+
+
+def ci_candidate_files(target_dir: Path) -> list[Path]:
+    candidates = []
+    for relative_path, _label in CI_MARKERS:
+        candidate = target_dir / relative_path
+        if candidate.is_file():
+            candidates.append(candidate)
+            continue
+        if candidate.is_dir():
+            candidates.extend(sorted(child for child in candidate.glob("*") if child.is_file()))
+    return candidates
+
+
+def classify_validation_command(command: str) -> str:
+    normalized = normalize_compare_text(command)
+    if docs_command_score(command) > 0:
+        return "docs"
+    if code_command_score(command) > 0:
+        return "code"
+    if any(marker in normalized for marker in ("test", "check", "verify", "lint")):
+        return "code"
+    return "other"
+
+
+def collect_ci_validation_commands(target_dir: Path) -> tuple[list[str], list[str]]:
+    code_commands = []
+    docs_commands = []
+    for path in ci_candidate_files(target_dir):
+        text = read_text_limited(path, char_limit=12000)
+        if not text:
+            continue
+        for command in extract_ci_run_commands(text):
+            classification = classify_validation_command(command)
+            if classification == "docs":
+                docs_commands.append(command)
+            elif classification == "code":
+                code_commands.append(command)
+    return rank_commands(code_commands, code_command_score), rank_commands(docs_commands, docs_command_score)
+
+
+def collect_package_script_validation_commands(target_dir: Path) -> tuple[list[str], list[str], list[str]]:
+    scripts = parse_package_scripts(target_dir / "package.json")
+    if not scripts:
+        return [], [], []
+    package_manager = detect_package_manager(target_dir)
+    code_commands = []
+    docs_commands = []
+    test_markers = []
+    preferred_scripts = [
+        "test",
+        "test:ci",
+        "test:unit",
+        "check",
+        "verify",
+        "lint",
+        "typecheck",
+        "build",
+        "docs:check",
+        "docs:lint",
+        "docs:test",
+    ]
+    remaining = sorted(name for name in scripts if name not in preferred_scripts)
+    for name in preferred_scripts + remaining:
+        if name not in scripts:
+            continue
+        raw_command = normalize_string(scripts.get(name), "")
+        if not raw_command or looks_like_placeholder_package_script(raw_command):
+            continue
+        command = package_script_command(package_manager, name)
+        if docs_command_score(raw_command) > 0 or docs_command_score(command) > 0 or name.startswith("docs:"):
+            docs_commands.append(command)
+            continue
+        if any(token in name for token in ("test", "check", "verify", "lint", "type")):
+            code_commands.append(command)
+            if "test" in name:
+                test_markers.append(command)
+    return (
+        rank_commands(code_commands, code_command_score),
+        rank_commands(docs_commands, docs_command_score),
+        dedupe_nonempty(test_markers),
+    )
+
+
+def pyproject_mentions(path: Path, markers: list[str]) -> bool:
+    if not path.exists():
+        return False
+    text = read_text_limited(path, char_limit=12000).lower()
+    return any(marker in text for marker in markers)
+
+
+def collect_python_validation_commands(target_dir: Path) -> list[str]:
+    commands = []
+    pyproject = target_dir / "pyproject.toml"
+    if (target_dir / "tox.ini").exists():
+        commands.append("tox")
+    if (target_dir / "noxfile.py").exists():
+        commands.append("nox")
+    if (target_dir / "pytest.ini").exists() or pyproject_mentions(pyproject, ["[tool.pytest", "pytest"]):
+        commands.append("pytest")
+    if any((target_dir / name).exists() for name in ("ruff.toml", ".ruff.toml")) or pyproject_mentions(pyproject, ["[tool.ruff"]):
+        commands.append("ruff check .")
+    if any((target_dir / name).exists() for name in ("mypy.ini", ".mypy.ini")) or pyproject_mentions(pyproject, ["[tool.mypy"]):
+        commands.append("mypy .")
+    if (target_dir / "pyrightconfig.json").exists() or (target_dir / "pyrightconfig.jsonc").exists():
+        commands.append("pyright")
+    if (target_dir / "manage.py").exists():
+        manage_text = read_text_limited(target_dir / "manage.py", char_limit=2000).lower()
+        if "django" in manage_text:
+            commands.append("python3 manage.py test")
+    python_check = detect_python_entrypoint(target_dir)
+    if python_check:
+        commands.append(python_check)
+    return rank_commands(commands, code_command_score)
 
 
 def choose_orchestration_files(target_dir: Path, limit: int = 10) -> list[Path]:
@@ -1226,6 +1624,7 @@ def dedupe_nonempty(items: list[str]) -> list[str]:
 
 def build_repo_brief(target_dir: Path, evidence: dict) -> dict:
     spec = evidence["spec"]
+    repo_hints = evidence["repoHints"]
     orchestration_files = evidence["orchestrationFiles"]
     repo_files = evidence["repoFiles"]
     readme_paragraph = ""
@@ -1236,31 +1635,12 @@ def build_repo_brief(target_dir: Path, evidence: dict) -> dict:
                 break
 
     ecosystem, ecosystem_reason = infer_primary_ecosystem(target_dir)
-    package_scripts = parse_package_scripts(target_dir / "package.json")
     repo_text_blob = "\n".join(item["content"] for item in repo_files).lower()
-    repo_mentions_pytest = "pytest" in repo_text_blob
-    code_checks = []
-    if ecosystem == "python":
-        if (target_dir / "tests").is_dir() and repo_mentions_pytest:
-            code_checks.append("pytest")
-        python_check = detect_python_entrypoint(target_dir)
-        if python_check:
-            code_checks.append(python_check)
-        if evidence["repoHints"]["suggestedCheck"] == "pytest":
-            code_checks.append("pytest")
-    elif ecosystem == "javascript":
-        if "test" in package_scripts:
-            code_checks.append("npm test")
-        elif "lint" in package_scripts:
-            code_checks.append("npm run lint")
-        elif evidence["repoHints"]["suggestedCheck"]:
-            code_checks.append(evidence["repoHints"]["suggestedCheck"])
-    elif ecosystem == "rust":
-        code_checks.append("cargo test")
-    elif ecosystem == "go":
-        code_checks.append("go test ./...")
-    elif evidence["repoHints"]["suggestedCheck"]:
-        code_checks.append(evidence["repoHints"]["suggestedCheck"])
+    code_checks = list(repo_hints.get("suggestedChecks", []))
+    if not code_checks and repo_hints["suggestedCheck"]:
+        code_checks.append(repo_hints["suggestedCheck"])
+    if not code_checks and ecosystem == "python" and (target_dir / "tests").is_dir() and "pytest" in repo_text_blob:
+        code_checks.append("pytest")
 
     docs_checks = []
     if (
@@ -1270,7 +1650,9 @@ def build_repo_brief(target_dir: Path, evidence: dict) -> dict:
             for path in [item["path"] for item in repo_files]
         )
     ):
-        docs_checks.append("Review changed docs for broken links, formatting, and clarity.")
+        docs_checks.extend(repo_hints.get("docsChecks", []))
+        if not docs_checks:
+            docs_checks.append("Review changed docs for broken links, formatting, and clarity.")
 
     orchestration_artifacts = detect_orchestration_artifacts(orchestration_files)
     existing_targets = dedupe_nonempty(list(spec["targets"]) + list(evidence["metadata"]["renderedTargets"]))
@@ -1358,13 +1740,81 @@ def build_repo_brief(target_dir: Path, evidence: dict) -> dict:
         "orchestrationArtifacts": orchestration_artifacts,
         "codeChecks": dedupe_nonempty(code_checks),
         "docsChecks": dedupe_nonempty(docs_checks),
-        "suggestedDomain": evidence["repoHints"]["suggestedDomain"],
-        "workspaceMarkers": evidence["repoHints"]["workspaceMarkers"],
-        "ciMarkers": evidence["repoHints"]["ciMarkers"],
+        "suggestedDomain": repo_hints["suggestedDomain"],
+        "workspaceMarkers": repo_hints["workspaceMarkers"],
+        "ciMarkers": repo_hints["ciMarkers"],
         "topLevelEntries": evidence["topLevelEntries"],
         "orchestrationFiles": [item["path"] for item in orchestration_files],
         "repoFiles": [item["path"] for item in repo_files],
         "evidenceTiers": evidence["evidenceTiers"],
+    }
+
+
+def build_suggest_evidence_summary(repo_brief: dict, spec: dict) -> dict:
+    evidence = {
+        "identity": [],
+        "workflow": [],
+        "verification": [],
+        "safety": [],
+    }
+    if repo_brief["repoIdentityConfidence"] != "low":
+        evidence["identity"].append(
+            f"Repo identity came from `{repo_brief['repoIdentity']}` with {repo_brief['repoIdentityConfidence']} confidence."
+        )
+    elif repo_brief["readmeParagraph"]:
+        evidence["identity"].append("README provided some repo identity context, but it stayed weak or generic.")
+    else:
+        evidence["identity"].append("No strong repo identity signal was found beyond the current spec and sampled files.")
+    if repo_brief["orchestrationArtifacts"]:
+        evidence["identity"].append(
+            "Existing orchestration artifacts: " + ", ".join(repo_brief["orchestrationArtifacts"])
+        )
+
+    if repo_brief["workflowIdentityConfidence"] != "low":
+        evidence["workflow"].append(
+            f"Workflow identity came from `{repo_brief['workflowIdentity']}` with {repo_brief['workflowIdentityConfidence']} confidence."
+        )
+    else:
+        evidence["workflow"].append(
+            f"Workflow identity fell back to the `{spec['workflowPreset']}` workflow preset and current orchestration shape."
+        )
+    if repo_brief["workspaceMarkers"]:
+        evidence["workflow"].append("Workspace markers detected: " + ", ".join(repo_brief["workspaceMarkers"]))
+
+    if repo_brief["codeChecks"]:
+        evidence["verification"].append("Code checks: " + ", ".join(repo_brief["codeChecks"]))
+    else:
+        evidence["verification"].append("No strong code check was detected from scripts, CI, or language-specific config.")
+    if repo_brief["docsChecks"]:
+        evidence["verification"].append("Docs checks: " + ", ".join(repo_brief["docsChecks"]))
+    if repo_brief["ciMarkers"]:
+        evidence["verification"].append("CI markers: " + ", ".join(repo_brief["ciMarkers"]))
+
+    evidence["safety"].append(f"Risk posture in spec: `{spec['project']['riskPosture']}`.")
+    if spec["toolPolicy"]["requiresApproval"]:
+        evidence["safety"].append(
+            "Approval-gated tools: " + ", ".join(spec["toolPolicy"]["requiresApproval"])
+        )
+    else:
+        evidence["safety"].append("No explicit approval-gated tools are currently configured.")
+    return evidence
+
+
+def make_suggestion_entry(
+    target: str,
+    value: object,
+    confidence: str,
+    rationale: str,
+    evidence_categories: list[str],
+    evidence_items: list[str],
+) -> dict:
+    return {
+        "target": target,
+        "value": value,
+        "confidence": confidence,
+        "rationale": rationale,
+        "evidenceCategories": evidence_categories,
+        "evidence": evidence_items,
     }
 
 
@@ -1439,16 +1889,19 @@ def suggest_success_criteria(repo_brief: dict, spec: dict) -> tuple[list[str], s
 
 def build_verification_suggestions(repo_brief: dict, spec: dict) -> tuple[list[dict], str]:
     suggested = []
+    confidence = "low"
     if repo_brief["codeChecks"]:
         preferred_change_type = preferred_change_types_for_refine(spec)[0]
+        primary_check = repo_brief["codeChecks"][0]
         suggested.append(
             {
                 "changeType": preferred_change_type,
                 "required": [
-                    f"Run `{repo_brief['codeChecks'][0]}` or explain the closest equivalent manual validation."
+                    f"Run `{primary_check}` or explain the closest equivalent manual validation."
                 ],
             }
         )
+        confidence = "high" if code_command_score(primary_check) >= 75 else "medium"
     if repo_brief["docsChecks"] and not any(
         item["changeType"] == "docs" for item in spec["verification"]
     ):
@@ -1458,7 +1911,8 @@ def build_verification_suggestions(repo_brief: dict, spec: dict) -> tuple[list[d
                 "required": [repo_brief["docsChecks"][0]],
             }
         )
-    return suggested, ("high" if suggested else "low")
+        confidence = "high" if confidence != "low" else "medium"
+    return suggested, confidence
 
 
 def generate_suggestions(repo_brief: dict, raw_spec: dict, spec: dict) -> dict:
@@ -1466,16 +1920,45 @@ def generate_suggestions(repo_brief: dict, raw_spec: dict, spec: dict) -> dict:
     mission, mission_confidence = suggest_mission(repo_brief, spec)
     success_criteria, criteria_confidence = suggest_success_criteria(repo_brief, spec)
     verification, verification_confidence = build_verification_suggestions(repo_brief, spec)
+    evidence_summary = build_suggest_evidence_summary(repo_brief, spec)
 
     project_updates = {}
+    project_explanations = {}
     if summary and summary != spec["project"]["summary"]:
-        project_updates["summary"] = summary
+        if summary_confidence != "low":
+            project_updates["summary"] = summary
+            project_explanations["summary"] = make_suggestion_entry(
+                "project.summary",
+                summary,
+                summary_confidence,
+                "Prefer repo-specific identity signals over generic preset text when the evidence is strong enough.",
+                ["identity"],
+                evidence_summary["identity"],
+            )
     if mission and mission != spec["project"]["mission"]:
-        project_updates["mission"] = mission
+        if mission_confidence != "low":
+            project_updates["mission"] = mission
+            project_explanations["mission"] = make_suggestion_entry(
+                "project.mission",
+                mission,
+                mission_confidence,
+                "Prefer workflow-specific evidence over generic mission text when the repo already signals how humans and agents should work here.",
+                ["workflow", "safety"],
+                evidence_summary["workflow"] + evidence_summary["safety"],
+            )
     if success_criteria and success_criteria != spec["project"]["successCriteria"]:
         project_updates["successCriteria"] = success_criteria
+        project_explanations["successCriteria"] = make_suggestion_entry(
+            "project.successCriteria",
+            success_criteria,
+            criteria_confidence,
+            "Success criteria should reflect the repo's verification shape, orchestration footprint, and working style without overfitting to weak signals.",
+            ["workflow", "verification", "safety"],
+            evidence_summary["workflow"] + evidence_summary["verification"] + evidence_summary["safety"],
+        )
 
     verification_updates = []
+    verification_explanations = []
     existing_pairs = {
         (item["changeType"], tuple(item["required"]))
         for item in spec["verification"]
@@ -1484,14 +1967,33 @@ def generate_suggestions(repo_brief: dict, raw_spec: dict, spec: dict) -> dict:
         key = (item["changeType"], tuple(item["required"]))
         if key not in existing_pairs:
             verification_updates.append(item)
+            primary_requirement = item["required"][0] if item["required"] else "Add repo-specific verification."
+            rationale = (
+                "Prefer a real repo-native code check over generic verification wording."
+                if item["changeType"] != "docs"
+                else "Keep docs checks separate from code checks so the spec stays honest about what is actually being validated."
+            )
+            verification_explanations.append(
+                make_suggestion_entry(
+                    f"verification[{item['changeType']}]",
+                    item,
+                    verification_confidence,
+                    rationale,
+                    ["verification"],
+                    evidence_summary["verification"] + [f"Suggested requirement: {primary_requirement}"],
+                )
+            )
 
     questions = []
-    if not repo_brief["readmeParagraph"] and repo_brief["repoIdentityConfidence"] == "low":
+    if summary_confidence == "low":
         questions.append("Should the project summary emphasize the runtime, the workflow model, or the target ecosystems most strongly?")
-    if not repo_brief["codeChecks"]:
+    if mission_confidence == "low":
+        questions.append("Should the workflow optimize more for implementation delivery, research/synthesis, or keeping Cursor and Claude aligned?")
+    if verification_confidence == "low":
         questions.append("What is the canonical check this repo should run after code changes?")
 
     preset_suggestion = None
+    preset_explanation = None
     if spec["domainPreset"] == "generic" and repo_brief["suggestedDomain"] is not None:
         suggested_domain, reason = repo_brief["suggestedDomain"]
         preset_suggestion = {
@@ -1499,11 +2001,25 @@ def generate_suggestions(repo_brief: dict, raw_spec: dict, spec: dict) -> dict:
             "domainPreset": suggested_domain,
             "reason": reason,
         }
+        preset_explanation = make_suggestion_entry(
+            "preset.domainPreset",
+            preset_suggestion,
+            "medium",
+            "Only suggest a preset shift when repo-shape markers consistently point away from the generic domain.",
+            ["identity", "verification"],
+            evidence_summary["identity"] + evidence_summary["verification"] + [reason],
+        )
 
     return {
         "project": project_updates,
         "verification": verification_updates,
         "presetSuggestion": preset_suggestion,
+        "explanations": {
+            "project": project_explanations,
+            "verification": verification_explanations,
+            "presetSuggestion": preset_explanation,
+            "evidenceSummary": evidence_summary,
+        },
         "confidence": {
             "summary": summary_confidence,
             "mission": mission_confidence,
@@ -1515,6 +2031,22 @@ def generate_suggestions(repo_brief: dict, raw_spec: dict, spec: dict) -> dict:
 
 
 def format_suggestion_report(repo_brief: dict, suggestions: dict, spec: dict) -> str:
+    explanations = suggestions.get("explanations", {})
+    evidence_summary = explanations.get("evidenceSummary", {})
+
+    def append_explanation_block(entry: dict | None) -> list[str]:
+        if not entry:
+            return []
+        lines = [
+            f"  - confidence: {entry['confidence']}",
+            f"  - why: {entry['rationale']}",
+        ]
+        if entry["evidenceCategories"]:
+            lines.append("  - evidence categories: " + ", ".join(entry["evidenceCategories"]))
+        for item in entry["evidence"]:
+            lines.append(f"    - {item}")
+        return lines
+
     lines = [
         "Zubeldia suggest",
         "",
@@ -1531,26 +2063,42 @@ def format_suggestion_report(repo_brief: dict, suggestions: dict, spec: dict) ->
     ]
     if repo_brief["identityNotes"]:
         lines.append(f"- identity notes: {' '.join(repo_brief['identityNotes'])}")
+    if evidence_summary:
+        lines.extend(["", "Evidence summary:"])
+        for category in ("identity", "workflow", "verification", "safety"):
+            items = evidence_summary.get(category, [])
+            label = category
+            if not items:
+                lines.append(f"- {label}: none")
+                continue
+            lines.append(f"- {label}:")
+            lines.extend(f"  - {item}" for item in items)
 
     if suggestions["project"] or suggestions["verification"] or suggestions["presetSuggestion"]:
         lines.extend(["", "Suggested updates:"])
         if "summary" in suggestions["project"]:
             lines.append(f"- project.summary -> {suggestions['project']['summary']}")
+            lines.extend(append_explanation_block(explanations.get("project", {}).get("summary")))
         if "mission" in suggestions["project"]:
             lines.append(f"- project.mission -> {suggestions['project']['mission']}")
+            lines.extend(append_explanation_block(explanations.get("project", {}).get("mission")))
         if "successCriteria" in suggestions["project"]:
             lines.append("- project.successCriteria")
             lines.extend(f"  - {item}" for item in suggestions["project"]["successCriteria"])
-        for item in suggestions["verification"]:
+            lines.extend(append_explanation_block(explanations.get("project", {}).get("successCriteria")))
+        verification_explanations = explanations.get("verification", [])
+        for index, item in enumerate(suggestions["verification"]):
             lines.append(f"- verification[{item['changeType']}]")
             lines.extend(f"  - {entry}" for entry in item["required"])
+            explanation = verification_explanations[index] if index < len(verification_explanations) else None
+            lines.extend(append_explanation_block(explanation))
         if suggestions["presetSuggestion"] is not None:
             lines.append(
                 f"- preset suggestion -> keep `{suggestions['presetSuggestion']['workflowPreset']}` and consider `{suggestions['presetSuggestion']['domainPreset']}`"
             )
-            lines.append(f"  - reason: {suggestions['presetSuggestion']['reason']}")
+            lines.extend(append_explanation_block(explanations.get("presetSuggestion")))
     else:
-        lines.extend(["", "Suggested updates:", "No high-confidence changes to propose right now."])
+        lines.extend(["", "Suggested updates:", "No conservative high-confidence changes to propose right now."])
 
     lines.extend(
         [
@@ -1627,8 +2175,7 @@ def run_suggest_step(target_dir: Path, blueprint_path: Path) -> bool:
     updated_blueprint = replace_block(blueprint_text, SPEC_MARKERS, updated_spec)
     write_text(blueprint_path, updated_blueprint)
     print(f"Updated {blueprint_path}.")
-    print("Next: run init-orch --all to recompile generated files.")
-    print("Then run init-orch --refine or init-orch --review to continue tuning the setup.")
+    print(next_step_message("init-orch --all", "to recompile generated files."))
     return True
 
 
@@ -1641,16 +2188,17 @@ def run_guided_bootstrap(
     print("Zubeldia bootstrap")
     print("Estimated setup time: about 2 minutes.")
     print("This creates a practical first draft for the repo. You can refine init-orch.md later.")
+    print("If you are unsure, start with engineering-generic for most software repos.")
     print("")
 
     workflow = prompt_choice(
-        "Pick the workflow that best matches the repo",
+        "Pick the workflow that best matches the working style",
         [(value, WORKFLOW_PRESET_DESCRIPTIONS[value]) for value in VALID_WORKFLOW_PRESETS],
         default_workflow,
     )
     print("")
     domain = prompt_choice(
-        "Pick the domain that best fits the repo",
+        "Pick the domain that best matches the repo shape",
         [(value, DOMAIN_PRESET_DESCRIPTIONS[value]) for value in VALID_DOMAIN_PRESETS],
         default_domain,
     )
@@ -1686,6 +2234,93 @@ def run_guided_bootstrap(
     return blueprint_path, True, chosen_preset, targets
 
 
+def first_render_command(targets: list[str]) -> str:
+    effective_targets = sorted({target for target in targets if target in VALID_TARGETS})
+    if len(effective_targets) == 1:
+        return f"init-orch --{effective_targets[0]}"
+    return "init-orch --all"
+
+
+def next_step_message(command: str, reason: str = "") -> str:
+    if reason:
+        return f"Next: run {command} {reason}"
+    return f"Next: run {command}"
+
+
+def recommendation_fingerprint(item: dict) -> str:
+    payload = json.dumps(
+        {
+            "category": normalize_string(item.get("category"), ""),
+            "title": normalize_string(item.get("title"), ""),
+            "recommendation": normalize_string(item.get("recommendation"), ""),
+            "rationale": normalize_string(item.get("rationale"), ""),
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:12]
+
+
+def recommendation_priority(item: dict) -> int:
+    explicit = item.get("priority")
+    if isinstance(explicit, int):
+        return explicit
+    category = normalize_string(item.get("category"), "")
+    priorities = {
+        "render": 100,
+        "security": 95,
+        "quality": 85,
+        "workflow": 80,
+        "project": 70,
+        "iteration": 60,
+        "imports": 50,
+        "repo-shape": 45,
+        "repo-hygiene": 40,
+    }
+    return priorities.get(category, 30)
+
+
+def rank_recommendation_items(items: list[dict]) -> list[dict]:
+    return sorted(
+        items,
+        key=lambda item: (
+            -recommendation_priority(item),
+            normalize_string(item.get("title"), ""),
+        ),
+    )
+
+
+def refinement_field_specs(existing_notes: dict, repo_hints: dict) -> list[dict]:
+    return [
+        {
+            "key": "commonWork",
+            "label": "What kinds of changes are most common here",
+            "default": normalize_string(existing_notes.get("commonWork"), ""),
+        },
+        {
+            "key": "primaryVerification",
+            "label": "What verification command or manual check matters most",
+            "default": normalize_string(existing_notes.get("primaryVerification"), "") or repo_hints["suggestedCheck"],
+        },
+        {
+            "key": "sensitivePaths",
+            "label": "Any directories or file patterns that need extra care",
+            "default": normalize_string(existing_notes.get("sensitivePaths"), ""),
+        },
+        {
+            "key": "existingConventions",
+            "label": "Any existing policies or conventions to respect",
+            "default": normalize_string(existing_notes.get("existingConventions"), ""),
+        },
+    ]
+
+
+def choose_refinement_fields(field_specs: list[dict], update_existing: bool) -> list[dict]:
+    if update_existing:
+        return field_specs
+    return [field for field in field_specs if not field["default"]]
+
+
 def run_refine_step(target_dir: Path, blueprint_path: Path) -> bool:
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         raise ValueError("--refine requires an interactive terminal.")
@@ -1704,23 +2339,24 @@ def run_refine_step(target_dir: Path, blueprint_path: Path) -> bool:
     print("This step tailors the generated structure to the actual repo without making bootstrap heavier.")
     print("")
 
-    common_work = prompt_optional_text(
-        "What kinds of changes are most common here",
-        normalize_string(existing_notes.get("commonWork"), ""),
-    )
-    verification_default = normalize_string(existing_notes.get("primaryVerification"), "") or repo_hints["suggestedCheck"]
-    primary_verification = prompt_optional_text(
-        "What verification command or manual check matters most",
-        verification_default,
-    )
-    sensitive_paths = prompt_optional_text(
-        "Any directories or file patterns that need extra care",
-        normalize_string(existing_notes.get("sensitivePaths"), ""),
-    )
-    conventions = prompt_optional_text(
-        "Any existing policies or conventions to respect",
-        normalize_string(existing_notes.get("existingConventions"), ""),
-    )
+    field_specs = refinement_field_specs(existing_notes, repo_hints)
+    known_fields = [field for field in field_specs if field["default"]]
+    update_existing = False
+    if known_fields:
+        print("Saved refinement notes:")
+        for field in known_fields:
+            print(f"- {field['key']}: {field['default']}")
+        update_existing = prompt_yes_no("Update the saved refine answers?", default=False)
+        print("")
+
+    values = {field["key"]: field["default"] for field in field_specs}
+    for field in choose_refinement_fields(field_specs, update_existing):
+        values[field["key"]] = prompt_optional_text(field["label"], field["default"])
+
+    common_work = values["commonWork"]
+    primary_verification = values["primaryVerification"]
+    sensitive_paths = values["sensitivePaths"]
+    conventions = values["existingConventions"]
 
     print("")
     print("About to refine init-orch.md with:")
@@ -1754,12 +2390,27 @@ def run_refine_step(target_dir: Path, blueprint_path: Path) -> bool:
         "sensitivePaths": sensitive_paths,
         "existingConventions": conventions,
     }
+    existing_snapshot = {
+        "commonWork": normalize_string(existing_notes.get("commonWork"), ""),
+        "primaryVerification": normalize_string(existing_notes.get("primaryVerification"), ""),
+        "sensitivePaths": normalize_string(existing_notes.get("sensitivePaths"), ""),
+        "existingConventions": normalize_string(existing_notes.get("existingConventions"), ""),
+    }
+    updated_snapshot = {
+        "commonWork": common_work,
+        "primaryVerification": primary_verification,
+        "sensitivePaths": sensitive_paths,
+        "existingConventions": conventions,
+    }
+    if existing_snapshot == updated_snapshot:
+        print("Refine captured no new repo-specific information.")
+        print(next_step_message("init-orch --review", "for a lighter setup check."))
+        return False
 
     updated_blueprint = replace_block(blueprint_text, SPEC_MARKERS, raw_spec)
     write_text(blueprint_path, updated_blueprint)
     print(f"Updated {blueprint_path}.")
-    print("Next: run init-orch --all to recompile the generated files.")
-    print("Then run init-orch --review to inspect the refined setup.")
+    print(next_step_message("init-orch --all", "to recompile the generated files."))
     return True
 
 
@@ -1794,6 +2445,8 @@ def collect_review_context(
     if conflict_report_has_items(conflicts):
         items.append(
             {
+                "category": "render",
+                "priority": 100,
                 "title": "Confirm existing repo structure before the next render",
                 "recommendation": "Review the existing managed roots and files, then re-run init-orch and confirm the overwrite prompt or use `--confirm-existing` when appropriate.",
                 "rationale": format_collision_summary(conflicts),
@@ -1802,6 +2455,8 @@ def collect_review_context(
     if not last_rendered_raw:
         items.append(
             {
+                "category": "render",
+                "priority": 95,
                 "title": "Render the first target files",
                 "recommendation": "Run `init-orch --all` or render the specific target you want to use first.",
                 "rationale": "The spec exists, but the tool-specific files have not been compiled yet.",
@@ -1810,6 +2465,8 @@ def collect_review_context(
     elif rendered_spec_digest and rendered_spec_digest != current_spec_digest:
         items.append(
             {
+                "category": "render",
+                "priority": 92,
                 "title": "Re-render after spec edits",
                 "recommendation": "Run `init-orch --all` after reviewing recent edits to init-orch.md.",
                 "rationale": "The current spec no longer matches the last compiled setup.",
@@ -1825,6 +2482,8 @@ def collect_review_context(
             if blueprint_mtime.timestamp() - last_rendered_at.timestamp() > 1:
                 items.append(
                     {
+                        "category": "render",
+                        "priority": 92,
                         "title": "Re-render after spec edits",
                         "recommendation": "Run `init-orch --all` after reviewing recent edits to init-orch.md.",
                         "rationale": "The blueprint appears newer than the latest recorded render.",
@@ -1835,6 +2494,8 @@ def collect_review_context(
     if missing_targets and last_rendered_raw:
         items.append(
             {
+                "category": "render",
+                "priority": 88,
                 "title": "Compile every configured target",
                 "recommendation": "Re-run init-orch for all configured targets so the generated files stay aligned.",
                 "rationale": "The spec includes "
@@ -1848,6 +2509,8 @@ def collect_review_context(
     if last_rendered_raw and not refinement_notes.get("lastRefinedAt"):
         items.append(
             {
+                "category": "workflow",
+                "priority": 84,
                 "title": "Run the refine step",
                 "recommendation": "Run `init-orch --refine` to capture repo-specific verification, sensitive paths, and existing conventions.",
                 "rationale": "The first render is complete, so this is a good time to tailor the setup to the actual repository.",
@@ -1858,6 +2521,8 @@ def collect_review_context(
     if spec["project"]["summary"] == default_summary:
         items.append(
             {
+                "category": "project",
+                "priority": 70,
                 "title": "Replace the placeholder summary",
                 "recommendation": "Write a project summary that explains what good agent work should optimize for.",
                 "rationale": "A specific summary makes presets, rules, and later reviews more useful.",
@@ -1867,6 +2532,8 @@ def collect_review_context(
     if not spec["project"]["successCriteria"]:
         items.append(
             {
+                "category": "quality",
+                "priority": 72,
                 "title": "Add success criteria",
                 "recommendation": "List 2-4 concrete outcomes that define a good change in this repository.",
                 "rationale": "Success criteria make the compile and review steps more grounded.",
@@ -1876,6 +2543,8 @@ def collect_review_context(
     if len(spec["roles"]) < 3:
         items.append(
             {
+                "category": "workflow",
+                "priority": 60,
                 "title": "Add a clearer collaboration shape",
                 "recommendation": "Define at least planner, implementer, and reviewer or evaluator roles.",
                 "rationale": "A small but explicit role model makes the generated guidance more actionable.",
@@ -1887,6 +2556,8 @@ def collect_review_context(
         check_text = repo_hints["suggestedCheck"]
         items.append(
             {
+                "category": "quality",
+                "priority": 82,
                 "title": "Map the canonical repo check into verification",
                 "recommendation": f"Add `{check_text}` or the most relevant real repo check to the `verification` section.",
                 "rationale": "The repository appears to have a concrete validation command, but the orchestration spec still describes verification in generic terms.",
@@ -1898,6 +2569,8 @@ def collect_review_context(
         check_text = repo_hints["suggestedCheck"] or "the repo's canonical validation command"
         items.append(
             {
+                "category": "quality",
+                "priority": 80,
                 "title": "Map real repo checks into verification",
                 "recommendation": f"Add `{check_text}` or the most relevant real repo check to the `verification` section.",
                 "rationale": "This repository appears to have CI or test markers, but the orchestration spec does not yet name a concrete repo-specific check.",
@@ -1908,6 +2581,8 @@ def collect_review_context(
         suggested_domain, reason = repo_hints["suggestedDomain"]
         items.append(
             {
+                "category": "repo-shape",
+                "priority": 44,
                 "title": "Re-check whether the generic domain is the best fit",
                 "recommendation": f"Consider whether `{suggested_domain}` would be a better domain preset, or capture the repo-specific nuance explicitly in `init-orch.md`.",
                 "rationale": reason,
@@ -1920,6 +2595,8 @@ def collect_review_context(
     ):
         items.append(
             {
+                "category": "workflow",
+                "priority": 58,
                 "title": "Add path-scoping guidance for a multi-root repo",
                 "recommendation": "Document which directories, packages, or subtrees agents should touch by default.",
                 "rationale": "This repository has workspace-style markers, but the spec does not yet describe path scoping or subtree ownership.",
@@ -1935,6 +2612,8 @@ def collect_review_context(
     if stale_generated:
         items.append(
             {
+                "category": "repo-hygiene",
+                "priority": 52,
                 "title": "Review stale generated files",
                 "recommendation": "Check whether previously generated files that are no longer part of the current plan should be removed or archived.",
                 "rationale": "Possible stale generated files: " + summarize_paths(sorted(stale_generated)),
@@ -1944,12 +2623,117 @@ def collect_review_context(
     if target_dir.name.startswith("."):
         items.append(
             {
+                "category": "project",
+                "priority": 30,
                 "title": "Check the target directory name",
                 "recommendation": "Consider setting `project.name` explicitly if the repository folder name is temporary.",
                 "rationale": "Generated files reuse the directory name when no stronger project name is provided.",
             }
         )
-    return items
+    return rank_recommendation_items(items)
+
+
+def target_specific_managed_paths(target_dir: Path, spec: dict, target: str) -> list[str]:
+    ownership = build_render_ownership(target_dir, spec, [target])
+    return relative_paths(target_dir, ownership["managedFiles"])
+
+
+def build_parity_snapshot(target_dir: Path, spec: dict, metadata: dict) -> dict:
+    shared_paths = [
+        "init-orch.md",
+        "AGENTS.md",
+        "orch/permissions.policy.json",
+        "orch/imports.lock.json",
+        "orch/evaluation.plan.json",
+    ]
+    cursor_paths = target_specific_managed_paths(target_dir, spec, "cursor")
+    claude_paths = target_specific_managed_paths(target_dir, spec, "claude")
+    shared_generated = [path for path in shared_paths if path != "init-orch.md"]
+    cursor_only = [path for path in cursor_paths if path not in shared_generated]
+    claude_only = [path for path in claude_paths if path not in shared_generated]
+    if ".gitignore" not in claude_only:
+        claude_only.append(".gitignore")
+    cursor_override_keys = sorted(spec["targetOverrides"]["cursor"].keys())
+    claude_override_keys = sorted(spec["targetOverrides"]["claude"].keys())
+    configured_targets = sorted(spec["targets"])
+    rendered_targets = sorted(metadata.get("renderedTargets", []))
+    missing_render_targets = [target for target in configured_targets if target not in rendered_targets]
+    missing_files = {
+        "cursor": [path for path in cursor_only if (target_dir / path).exists() is False],
+        "claude": [path for path in claude_only if (target_dir / path).exists() is False],
+        "shared": [path for path in shared_generated if (target_dir / path).exists() is False],
+    }
+    drift_notes = []
+    if missing_render_targets:
+        drift_notes.append("Not yet rendered for: " + ", ".join(missing_render_targets))
+    for target in ("cursor", "claude"):
+        if target in configured_targets and missing_files[target]:
+            drift_notes.append(
+                f"Missing expected {target} files: {summarize_paths(missing_files[target])}"
+            )
+    if ".gitignore" in claude_only and not (target_dir / ".gitignore").exists():
+        drift_notes.append("Claude render expects a `.gitignore` entry for `.claude/settings.local.json`.")
+    return {
+        "configuredTargets": configured_targets,
+        "renderedTargets": rendered_targets,
+        "sharedSourceFields": [
+            "project",
+            "workflow",
+            "responseStyle",
+            "verification",
+            "roles",
+            "skills",
+            "imports",
+            "toolPolicy",
+        ],
+        "sharedGeneratedFiles": shared_generated,
+        "cursorOnlyFiles": cursor_only,
+        "claudeOnlyFiles": claude_only,
+        "cursorOverrideKeys": cursor_override_keys,
+        "claudeOverrideKeys": claude_override_keys,
+        "driftNotes": drift_notes,
+    }
+
+
+def format_parity_report(target_dir: Path, spec: dict, metadata: dict, snapshot: dict) -> str:
+    lines = [
+        f"Zubeldia parity for {target_dir}",
+        "",
+        "Shared source of truth:",
+        "- `init-orch.md` defines " + ", ".join(snapshot["sharedSourceFields"]) + " once for both targets.",
+        "- Shared generated files: " + summarize_paths(snapshot["sharedGeneratedFiles"]),
+        "",
+        "Target-specific outputs:",
+        "- Cursor-only files: " + summarize_paths(snapshot["cursorOnlyFiles"]) if snapshot["cursorOnlyFiles"] else "- Cursor-only files: none",
+        "- Claude-only files: " + summarize_paths(snapshot["claudeOnlyFiles"]) if snapshot["claudeOnlyFiles"] else "- Claude-only files: none",
+        "- Cursor anchor files: `.cursor/rules/core.mdc`, `.cursor/imports/manifest.json`, and optional `.cursor/mcp.json`.",
+        "- Claude anchor files: `.claude/settings.json`, `.claude/rules/orchestration.md`, role/skill files, and a `.gitignore` entry for `.claude/settings.local.json`.",
+        "",
+        "Target-specific overrides:",
+        "- Cursor overrides: " + (", ".join(snapshot["cursorOverrideKeys"]) if snapshot["cursorOverrideKeys"] else "none"),
+        "- Claude overrides: " + (", ".join(snapshot["claudeOverrideKeys"]) if snapshot["claudeOverrideKeys"] else "none"),
+        "",
+        "Current parity status:",
+        "- configured targets: " + (", ".join(snapshot["configuredTargets"]) if snapshot["configuredTargets"] else "none"),
+        "- last rendered targets: " + (", ".join(snapshot["renderedTargets"]) if snapshot["renderedTargets"] else "none"),
+    ]
+    if snapshot["driftNotes"]:
+        lines.extend(["", "Drift to inspect:"])
+        lines.extend(f"- {item}" for item in snapshot["driftNotes"])
+    else:
+        lines.extend(["", "Drift to inspect:", "- No obvious Cursor/Claude parity drift right now."])
+    lines.extend(
+        [
+            "",
+            "Next step:",
+            (
+                next_step_message("init-orch --all", "to keep Cursor and Claude aligned.")
+                if snapshot["driftNotes"]
+                else next_step_message("init-orch --review", "after a meaningful repo or workflow change.")
+            ),
+        ]
+    )
+    return "\n".join(lines)
 
 
 def format_review_report(
@@ -1958,9 +2742,13 @@ def format_review_report(
     metadata: dict,
     context_items: list[dict],
     recommendations: dict,
+    parity_snapshot: dict,
+    suppressed_count: int = 0,
 ) -> str:
     last_rendered = metadata.get("lastRenderedAt") or "never"
     rendered_targets = metadata.get("renderedTargets", [])
+    immediate = context_items[:3]
+    setup_items = recommendations["items"][:3]
     lines = [
         f"Zubeldia review for {target_dir}",
         "",
@@ -1971,29 +2759,52 @@ def format_review_report(
         "- last rendered targets: " + (", ".join(rendered_targets) if rendered_targets else "none"),
     ]
 
-    if context_items:
+    if immediate:
         lines.extend(["", "Immediate actions:"])
-        for index, item in enumerate(context_items, start=1):
+        for index, item in enumerate(immediate, start=1):
             lines.append(f"{index}. {item['title']}")
             lines.extend(format_report_detail("Recommendation", item["recommendation"]))
             lines.extend(format_report_detail("Why", item["rationale"]))
+        if len(context_items) > len(immediate):
+            lines.append(f"... {len(context_items) - len(immediate)} more immediate action(s) hidden")
     else:
         lines.extend(["", "Immediate actions:", "Nothing urgent."])
 
-    if recommendations["items"]:
+    if setup_items:
         lines.extend(["", "Setup recommendations:"])
-        for index, item in enumerate(recommendations["items"], start=1):
+        for index, item in enumerate(setup_items, start=1):
             lines.append(f"{index}. {item['title']}")
             lines.extend(format_report_detail("Recommendation", item["recommendation"]))
             lines.extend(format_report_detail("Why", item["rationale"]))
+        hidden_count = len(recommendations["items"]) - len(setup_items)
+        if hidden_count > 0:
+            lines.append(f"... {hidden_count} more setup recommendation(s) hidden")
+        if suppressed_count:
+            lines.append(f"{suppressed_count} unchanged recommendation(s) suppressed because the setup state has not changed.")
     else:
         lines.extend(["", "Setup recommendations:", "No major recommendations right now."])
+        if suppressed_count:
+            lines.append(f"{suppressed_count} unchanged recommendation(s) suppressed because the setup state has not changed.")
+
+    lines.extend(["", "Parity:"])
+    lines.append(
+        "- shared files: "
+        + summarize_paths(parity_snapshot["sharedGeneratedFiles"])
+    )
+    lines.append(
+        "- target-specific drift: "
+        + (parity_snapshot["driftNotes"][0] if parity_snapshot["driftNotes"] else "none detected")
+    )
 
     lines.extend(
         [
             "",
             "Suggested next step:",
-            "Edit init-orch.md if something above should become part of the canonical setup, then re-run init-orch.",
+            (
+                immediate[0]["recommendation"]
+                if immediate
+                else (setup_items[0]["recommendation"] if setup_items else "Keep using the current setup and re-run `init-orch --review` when the repo meaningfully changes.")
+            ),
         ]
     )
     return "\n".join(lines)
@@ -2004,9 +2815,31 @@ def review_blueprint(target_dir: Path, blueprint_path: Path) -> str:
     raw_spec = require_dict(parse_blueprint_block(blueprint_text, SPEC_MARKERS, "spec"), "spec")
     spec = normalize_spec(raw_spec)
     metadata = load_generated_metadata(blueprint_text)
+    saved_recommendations = load_saved_recommendations(blueprint_text)
     recommendations = generate_recommendations(spec)
+    parity_snapshot = build_parity_snapshot(target_dir, spec, metadata)
+    saved_fingerprints = {
+        normalize_string(item.get("fingerprint"), "") or recommendation_fingerprint(item)
+        for item in saved_recommendations["items"]
+        if isinstance(item, dict)
+    }
+    active_recommendations = {
+        **recommendations,
+        "items": [
+            item for item in recommendations["items"] if normalize_string(item.get("fingerprint"), "") not in saved_fingerprints
+        ],
+    }
+    suppressed_count = len(recommendations["items"]) - len(active_recommendations["items"])
     context_items = collect_review_context(target_dir, blueprint_path, raw_spec, spec, metadata, spec["targets"])
-    return format_review_report(target_dir, spec, metadata, context_items, recommendations)
+    return format_review_report(
+        target_dir,
+        spec,
+        metadata,
+        context_items,
+        active_recommendations,
+        parity_snapshot,
+        suppressed_count=suppressed_count,
+    )
 
 
 def dedupe_items(items: list[dict], key: str) -> list[dict]:
@@ -2056,6 +2889,101 @@ def indented_block(text: str, prefix: str = "        ") -> str:
     if not stripped:
         return prefix.rstrip()
     return textwrap.indent(stripped, prefix)
+
+
+def response_style_overview(style: dict) -> str:
+    return bullet_lines(
+        [
+            f"Tone: {style['tone']}",
+            f"Verbosity: {style['verbosity']}",
+            f"Structure: {style['structure']}",
+            f"Default length: {style['defaultLength']}",
+        ],
+        "Add response style guidance in `init-orch.md`.",
+    )
+
+
+def response_style_profile(profile: str) -> dict:
+    profiles = {
+        "engineering": {
+            "tone": "direct",
+            "verbosity": "balanced",
+            "structure": "answer-first",
+            "defaultLength": "short",
+            "rules": [
+                "Lead with the answer or recommendation.",
+                "Keep responses concise unless the user asks for more detail.",
+                "Use bullets only when the content is naturally list-shaped.",
+            ],
+            "examples": [
+                "Do: `Bug in auth middleware. Expiry check should use <=. Fix:`",
+                "Avoid: `Sure! I'd be happy to help. The issue may be caused by...`",
+            ],
+        },
+        "research": {
+            "tone": "analytical",
+            "verbosity": "detailed",
+            "structure": "findings-first",
+            "defaultLength": "medium",
+            "rules": [
+                "Lead with the main finding or recommendation, then show the supporting evidence.",
+                "Separate findings, hypotheses, assumptions, and open questions explicitly.",
+                "State confidence level and notable caveats when the evidence is incomplete.",
+            ],
+            "examples": [
+                "Do: `Main finding: the current onboarding drop-off is at the permissions step. Evidence: logs from the last 14 days and three support tickets. Confidence: medium.`",
+                "Avoid: `I think the issue might maybe be onboarding, but I'd need to look around more.`",
+            ],
+        },
+        "poc": {
+            "tone": "pragmatic",
+            "verbosity": "low",
+            "structure": "answer-first",
+            "defaultLength": "very-short",
+            "rules": [
+                "Lead with the result, next experiment, or blocker immediately.",
+                "Favor concise updates over polished exposition.",
+                "Call out shortcuts, risks, and what would need hardening before production use.",
+            ],
+            "examples": [
+                "Do: `Prototype works for the happy path. Next: test two failure cases and note the shortcuts we took.`",
+                "Avoid: `Here is a long polished explanation of the prototype before we know if the idea works.`",
+            ],
+        },
+        "docs": {
+            "tone": "editorial",
+            "verbosity": "balanced",
+            "structure": "reader-first",
+            "defaultLength": "short",
+            "rules": [
+                "Lead with the clearest wording or structure recommendation for the reader.",
+                "Prefer concrete wording, examples, and scannable structure over abstract commentary.",
+                "Call out ambiguity, broken references, and user-facing terminology changes explicitly.",
+            ],
+            "examples": [
+                "Do: `Recommended rewrite: rename this section to 'Install locally' and move the prerequisite list above the command block.`",
+                "Avoid: `The docs seem mostly okay, though maybe some wording could be improved somewhere.`",
+            ],
+        },
+        "ops": {
+            "tone": "cautious",
+            "verbosity": "balanced",
+            "structure": "risk-first",
+            "defaultLength": "short",
+            "rules": [
+                "Lead with blast radius, approval requirements, or safety blockers before implementation details.",
+                "Prefer explicit risk, rollback, and verification notes over optimistic summaries.",
+                "State when a proposed action should stop at plan or diff instead of apply.",
+            ],
+            "examples": [
+                "Do: `Risk: touches shared staging. Safe next step: run `terraform plan` and review the diff before any apply.`",
+                "Avoid: `This looks fine to deploy; we can probably apply it now.`",
+            ],
+        },
+    }
+    if profile not in profiles:
+        raise ValueError(f"Unknown response style profile: {profile}")
+    return deepcopy(profiles[profile])
 
 
 def normalize_role(index: int, raw_role: object) -> dict:
@@ -2233,6 +3161,16 @@ def normalize_spec(raw_spec: object) -> dict:
         if not handoffs[-1]["from"] or not handoffs[-1]["to"]:
             raise ValueError(f"`handoffs[{index}]` must include `from` and `to`.")
 
+    response_style = require_dict(spec.get("responseStyle", {}), "responseStyle")
+    response_style_normalized = {
+        "tone": normalize_string(response_style.get("tone"), "direct"),
+        "verbosity": normalize_string(response_style.get("verbosity"), "balanced"),
+        "structure": normalize_string(response_style.get("structure"), "answer-first"),
+        "defaultLength": normalize_string(response_style.get("defaultLength"), "short"),
+        "rules": require_string_list(response_style.get("rules", []), "responseStyle.rules"),
+        "examples": require_string_list(response_style.get("examples", []), "responseStyle.examples"),
+    }
+
     verification_raw = spec.get("verification", [])
     if not isinstance(verification_raw, list):
         raise ValueError("`verification` must be a JSON array.")
@@ -2360,6 +3298,7 @@ def normalize_spec(raw_spec: object) -> dict:
         "rules": rules,
         "workflow": workflow_normalized,
         "handoffs": handoffs,
+        "responseStyle": response_style_normalized,
         "verification": verification,
         "skills": skills,
         "toolPolicy": tool_policy_normalized,
@@ -2394,6 +3333,7 @@ def base_blueprint_spec(repo_name: str) -> dict:
             "riskPosture": "moderate",
             "maturity": "new",
         },
+        "responseStyle": response_style_profile("engineering"),
         "targets": ["cursor", "claude"],
         "roles": [
             {
@@ -2561,6 +3501,7 @@ def workflow_preset_overrides(workflow: str) -> dict:
                 ],
                 "maturity": "exploring",
             },
+            "responseStyle": response_style_profile("research"),
             "rules": [
                 "Separate findings, hypotheses, and next steps clearly.",
                 "Ask before broad implementation or irreversible changes.",
@@ -2633,6 +3574,7 @@ def workflow_preset_overrides(workflow: str) -> dict:
                 ],
                 "maturity": "growing",
             },
+            "responseStyle": response_style_profile("engineering"),
             "rules": [
                 "Prefer maintainable solutions over clever shortcuts.",
                 "Keep diffs reviewable and verification relevant to the change.",
@@ -2665,6 +3607,7 @@ def workflow_preset_overrides(workflow: str) -> dict:
                 ],
                 "maturity": "prototype",
             },
+            "responseStyle": response_style_profile("poc"),
             "rules": [
                 "Prefer speed, but keep changes reviewable.",
                 "Document shortcuts and unresolved risks explicitly.",
@@ -2709,6 +3652,16 @@ def domain_preset_overrides(domain: str) -> dict:
                     "Small reviewable UI and product changes.",
                     "Focused verification for behavior and UX.",
                     "Clear separation between implementation work and polish.",
+                ],
+            },
+            "responseStyle": {
+                "structure": "user-impact-first",
+                "rules": [
+                    "Lead with the user-facing impact, changed flow, or visible behavior before implementation detail.",
+                    "Mention manual UI checks, browser validation, or accessibility caveats when they matter.",
+                ],
+                "examples": [
+                    "Do: `User-facing change: the settings save flow now keeps the success toast visible after redirect. Verified in the main path and keyboard navigation still works.`",
                 ],
             },
             "workflow": {
@@ -2784,6 +3737,18 @@ def domain_preset_overrides(domain: str) -> dict:
                 ],
                 "maturity": "exploring",
             },
+            "responseStyle": {
+                "tone": "analytical",
+                "structure": "result-first",
+                "defaultLength": "medium",
+                "rules": [
+                    "Lead with the result, metric change, or experimental conclusion before method details.",
+                    "State dataset assumptions, reproducibility limits, and confidence level when summarizing analysis.",
+                ],
+                "examples": [
+                    "Do: `Result: the new feature improved recall by 4 points on the validation slice, but confidence is limited because the dataset window is narrow.`",
+                ],
+            },
             "rules": [
                 "Record dataset assumptions, experiment context, and notable caveats.",
                 "Prefer reproducible scripts or notebooks over one-off undocumented steps.",
@@ -2847,6 +3812,7 @@ def domain_preset_overrides(domain: str) -> dict:
                 ],
                 "maturity": "production",
             },
+            "responseStyle": response_style_profile("ops"),
             "rules": [
                 "Never apply destructive infra changes without human approval.",
                 "Prefer read, diff, or plan actions before write or apply actions.",
@@ -2902,6 +3868,7 @@ def domain_preset_overrides(domain: str) -> dict:
                 ],
                 "maturity": "maintained",
             },
+            "responseStyle": response_style_profile("docs"),
             "verification": [
                 {
                     "changeType": "docs",
@@ -2929,6 +3896,17 @@ def domain_preset_overrides(domain: str) -> dict:
                     "Make content generation repeatable.",
                     "Keep approval and review steps explicit.",
                     "Track external assets and generated content sources clearly.",
+                ],
+            },
+            "responseStyle": {
+                "tone": "review-oriented",
+                "structure": "deliverable-first",
+                "rules": [
+                    "Lead with what was produced, what still needs review, and any publication blockers.",
+                    "Call out provenance, rights, and quality caveats explicitly.",
+                ],
+                "examples": [
+                    "Do: `Produced three banner variants. Best candidate: option B. Still needs human review for brand consistency and licensing.`",
                 ],
             },
             "rules": [
@@ -2993,6 +3971,7 @@ def default_blueprint(repo_name: str, preset: str = DEFAULT_PRESET, spec: dict |
         "items": [],
     }
     priority_guidance = render_priority_guidance(workflow_name, domain_name)
+    preset_provenance = render_preset_provenance_guidance(preset_name, workflow_name, domain_name)
     parts = [
         "# Init Orch",
         "",
@@ -3002,22 +3981,24 @@ def default_blueprint(repo_name: str, preset: str = DEFAULT_PRESET, spec: dict |
         "",
         f"Preset: `{preset_name}`. {preset_summary(workflow_name, domain_name)}",
         "",
-        "Edit the JSON block below to describe the orchestration structure you want for this repository.",
+        *preset_provenance,
+        "",
+        "Edit the JSON block below freely to describe the orchestration structure you want for this repository.",
         "",
         *priority_guidance,
         "",
-        "<!-- Edit the JSON spec below. Everything else is generated from it. -->",
+        "<!-- Edit the JSON spec below freely. Every field is editable. Everything else is generated from it. -->",
         "",
         json_block(SPEC_MARKERS, spec),
         "",
         "## Workflow",
         "",
-        "1. Fill in the spec block above.",
-        "2. Run `init-orch --suggest` if you want a repo-aware proposal for summary, mission, success criteria, and verification.",
-        "3. Run `init-orch --cursor`, `init-orch --claude`, or `init-orch --all` to compile target-specific files.",
-        "4. Run `init-orch --refine` after the first render when you want to tailor the setup to the actual repo.",
-        "5. Run `init-orch --review` whenever you want deliberate setup recommendations without rewriting files.",
-        "6. Re-run the command whenever you change the orchestration design.",
+        "1. Review or edit the spec block above only if you want to override the defaults.",
+        "2. Run `init-orch --all` for the first render, or `init-orch --cursor` / `init-orch --claude` if you only want one target.",
+        "3. Run `init-orch --suggest` when you want a repo-aware proposal for summary, mission, success criteria, and verification.",
+        "4. Re-run the render command after any spec change.",
+        "5. Run `init-orch --refine` after the first render when you want to tailor the setup to the actual repo.",
+        "6. Run `init-orch --review` whenever you want deliberate setup recommendations without rewriting files.",
         "7. Review the generated recommendations block and decide which changes belong in the spec.",
         "",
         "The generator will only rewrite the metadata and recommendations blocks below.",
@@ -3048,6 +4029,7 @@ def generate_recommendations(spec: dict) -> dict:
         items.append(
             {
                 "category": "security",
+                "priority": 95,
                 "title": "Add approval gates for risky permissions",
                 "recommendation": "Populate `toolPolicy.requiresApproval` for shell, delete, or broad edit access.",
                 "rationale": "Risky capabilities are enabled without an explicit approval boundary.",
@@ -3058,6 +4040,7 @@ def generate_recommendations(spec: dict) -> dict:
         items.append(
             {
                 "category": "security",
+                "priority": 90,
                 "title": "Tighten broad shell access",
                 "recommendation": "Replace `Bash(*)` with narrower patterns or require approval before shell execution.",
                 "rationale": "A high-risk posture and broad shell access work against each other.",
@@ -3068,6 +4051,7 @@ def generate_recommendations(spec: dict) -> dict:
         items.append(
             {
                 "category": "quality",
+                "priority": 82,
                 "title": "Add verification requirements",
                 "recommendation": "Define `verification` entries by change type so agents know what checks are required.",
                 "rationale": "Without change-specific verification, reviews depend too heavily on ad hoc judgment.",
@@ -3078,6 +4062,7 @@ def generate_recommendations(spec: dict) -> dict:
         items.append(
             {
                 "category": "workflow",
+                "priority": 78,
                 "title": "Add explicit stop conditions",
                 "recommendation": "Define when agents should stop and ask for help instead of pushing forward.",
                 "rationale": "Stop conditions reduce unsafe improvisation and wasted effort.",
@@ -3088,6 +4073,7 @@ def generate_recommendations(spec: dict) -> dict:
         items.append(
             {
                 "category": "iteration",
+                "priority": 58,
                 "title": "Add an evaluator role",
                 "recommendation": "Introduce a role that reviews overall human-agent collaboration and recommends improvements.",
                 "rationale": "A dedicated evaluator helps the orchestration evolve as the project changes.",
@@ -3099,6 +4085,7 @@ def generate_recommendations(spec: dict) -> dict:
             items.append(
                 {
                     "category": "imports",
+                    "priority": 50,
                     "title": f"Review imported capability `{item['id']}`",
                     "recommendation": "Confirm trust, scope, and target mappings before relying on this import in production work.",
                     "rationale": f"Imported source `{item['source']}` is not marked as fully reviewed.",
@@ -3108,31 +4095,31 @@ def generate_recommendations(spec: dict) -> dict:
             items.append(
                 {
                     "category": "imports",
+                    "priority": 46,
                     "title": f"Pin a revision for `{item['id']}`",
                     "recommendation": "Use a concrete version or revision when possible so your orchestration stays reproducible.",
                     "rationale": "Floating imports can drift and change behavior unexpectedly.",
                 }
             )
 
-    summary = "No major recommendations." if not items else f"{len(items)} recommendation(s) generated."
+    ranked_items = rank_recommendation_items(items)
+    for item in ranked_items:
+        item["fingerprint"] = recommendation_fingerprint(item)
+    summary = "No major recommendations." if not ranked_items else f"{len(ranked_items)} recommendation(s) generated."
     return {
         "version": 1,
         "summary": summary,
-        "items": items,
+        "items": ranked_items,
     }
 
 
 def render_agents_file(spec: dict, recommendations: dict) -> str:
     project = spec["project"]
+    response_style = spec["responseStyle"]
     targets = ", ".join(spec["targets"]) if spec["targets"] else "none"
     roles = "\n".join(
         f"- `{role['id']}`: {role['role']}" for role in spec["roles"]
     ) or "- Add at least one role in `init-orch.md`."
-    responsibilities = "\n".join(
-        f"- `{role['id']}` responsibilities: "
-        + (", ".join(role["responsibilities"]) or "Add responsibilities in `init-orch.md`.")
-        for role in spec["roles"]
-    ) or "- Add role responsibilities in `init-orch.md`."
     skills = "\n".join(
         f"- `{skill['id']}`: {skill['when']} ({skill['source']})" for skill in spec["skills"]
     ) or "- Add a skill entry in `init-orch.md` when you want reusable workflows."
@@ -3147,28 +4134,23 @@ def render_agents_file(spec: dict, recommendations: dict) -> str:
         + (", ".join(item["required"]) or "Add required checks in `init-orch.md`.")
         for item in spec["verification"]
     ) or "- Add verification requirements in `init-orch.md`."
-    imports = "\n".join(
-        f"- `{item['id']}` (`{item['type']}`): {item['source']}" for item in spec["imports"]
-    ) or "- No imports declared."
     recommendation_titles = "\n".join(
-        f"- {item['title']}" for item in recommendations["items"][:5]
+        f"- {item['title']}" for item in recommendations["items"][:3]
     ) or "- No outstanding recommendations."
 
     return textwrap.dedent(
         f"""\
         # Agent Operating Guide
 
-        Source of truth: `init-orch.md`. Re-run `init-orch` after changing the orchestration design.
+        Generated from `init-orch.md`. Do not edit directly. Re-run `init-orch --all` after changing the blueprint.
 
         > Security warning: {SECURITY_WARNING}
 
         ## Project
 
-        - Name: {project["name"]}
-        - Style: {project["style"]}
         - Targets: {targets}
         - Risk posture: {project["riskPosture"]}
-        - Maturity: {project["maturity"]}
+        - Workflow style: {project["style"]}
 
 {indented_block(project["summary"])}
 
@@ -3183,10 +4165,6 @@ def render_agents_file(spec: dict, recommendations: dict) -> str:
         ## Roles
 
 {indented_block(roles)}
-
-        ## Role Responsibilities
-
-{indented_block(responsibilities)}
 
         ## Working Rules
 
@@ -3205,31 +4183,27 @@ def render_agents_file(spec: dict, recommendations: dict) -> str:
 
 {indented_block(bullet_lines([f"{handoff['from']} -> {handoff['to']}: {', '.join(handoff['expects'])}" for handoff in spec["handoffs"]], "Add handoffs in `init-orch.md`."))}
 
+        ### Response Style
+
+{indented_block(response_style_overview(response_style))}
+
+        #### Style Rules
+
+{indented_block(bullet_lines(response_style["rules"], "Add responseStyle.rules in `init-orch.md`."))}
+
+        #### Example Replies
+
+{indented_block(bullet_lines(response_style["examples"], "Add responseStyle.examples in `init-orch.md`."))}
+
         ### Verification
 
 {indented_block(verification)}
-
-        ## Tool Policy
-
-        - Allow: {", ".join(spec["toolPolicy"]["allow"]) or "none"}
-        - Risky: {", ".join(spec["toolPolicy"]["risky"]) or "none"}
-        - Requires approval: {", ".join(spec["toolPolicy"]["requiresApproval"]) or "none"}
-        - Deny: {", ".join(spec["toolPolicy"]["deny"]) or "none"}
-
-        ## Imported Capabilities
-
-{indented_block(imports)}
 
         ## Skills
 
 {indented_block(skills)}
 
-        ## Evaluation Loop
-
-        - Cadence: {spec["evaluation"]["cadence"]}
-        - Recommendation format: {spec["evaluation"]["recommendationFormat"]}
-
-        ### Current Recommendations
+        ## Current Recommendations
 
 {indented_block(recommendation_titles)}
         """
@@ -3246,6 +4220,7 @@ def render_policy_file(spec: dict) -> str:
         "rules": spec["rules"],
         "workflow": spec["workflow"],
         "handoffs": spec["handoffs"],
+        "responseStyle": spec["responseStyle"],
         "verification": spec["verification"],
         "skills": spec["skills"],
         "toolPolicy": spec["toolPolicy"],
@@ -3269,6 +4244,7 @@ def render_policy_file(spec: dict) -> str:
 
 
 def render_cursor_core_rule(spec: dict) -> str:
+    response_style = spec["responseStyle"]
     role_lines = "\n".join(
         f"- `{role['id']}`: {role['role']}" for role in spec["roles"]
     ) or "- Add roles in `init-orch.md`."
@@ -3296,6 +4272,18 @@ def render_cursor_core_rule(spec: dict) -> str:
         ## Mission
 
 {indented_block(spec["project"]["mission"])}
+
+        ## Response Style
+
+{indented_block(response_style_overview(response_style))}
+
+        ### Style Rules
+
+{indented_block(bullet_lines(response_style["rules"], "Add responseStyle.rules in `init-orch.md`."))}
+
+        ### Example Replies
+
+{indented_block(bullet_lines(response_style["examples"], "Add responseStyle.examples in `init-orch.md`."))}
 
         ## Success Criteria
 
@@ -3434,6 +4422,7 @@ def render_cursor_skill(skill: dict) -> str:
 
 
 def render_claude_rule(spec: dict) -> str:
+    response_style = spec["responseStyle"]
     return textwrap.dedent(
         f"""\
         # Claude Orchestration Guide
@@ -3449,6 +4438,18 @@ def render_claude_rule(spec: dict) -> str:
         ## Mission
 
 {indented_block(spec["project"]["mission"])}
+
+        ## Response Style
+
+{indented_block(response_style_overview(response_style))}
+
+        ### Style Rules
+
+{indented_block(bullet_lines(response_style["rules"], "Add responseStyle.rules in `init-orch.md`."))}
+
+        ### Example Replies
+
+{indented_block(bullet_lines(response_style["examples"], "Add responseStyle.examples in `init-orch.md`."))}
 
         ## Working Rules
 
@@ -3750,12 +4751,72 @@ def render_claude_files(target_dir: Path, spec: dict, recommendations: dict) -> 
     return generated
 
 
+def stage_render_outputs(target_dir: Path, spec: dict, recommendations: dict, selected_targets: list[str]) -> list[Path]:
+    generated_paths = render_shared_files(target_dir, spec, recommendations)
+    if "cursor" in selected_targets:
+        generated_paths.extend(render_cursor_files(target_dir, spec, recommendations))
+    if "claude" in selected_targets:
+        generated_paths.extend(render_claude_files(target_dir, spec, recommendations))
+        gitignore_path = target_dir / ".gitignore"
+        if gitignore_path.exists():
+            generated_paths.append(gitignore_path)
+    return generated_paths
+
+
+def read_file_if_exists(path: Path) -> str | None:
+    if not path.exists() or not path.is_file():
+        return None
+    return path.read_text(encoding="utf-8")
+
+
+def render_preview_report(target_dir: Path, staged_dir: Path, relative_paths: list[str]) -> str:
+    created = []
+    updated = []
+    unchanged = []
+    for relative_path in sorted(set(relative_paths)):
+        actual_path = target_dir / relative_path
+        staged_path = staged_dir / relative_path
+        actual = read_file_if_exists(actual_path)
+        staged = read_file_if_exists(staged_path)
+        if staged is None:
+            continue
+        if actual is None:
+            created.append(relative_path)
+        elif actual != staged:
+            updated.append(relative_path)
+        else:
+            unchanged.append(relative_path)
+
+    lines = [
+        "Zubeldia render dry-run",
+        "",
+        "No files were written.",
+        f"- create: {len(created)}",
+        f"- update: {len(updated)}",
+        f"- unchanged: {len(unchanged)}",
+    ]
+    if created:
+        lines.extend(["", "Would create:"])
+        lines.extend(f"- {path}" for path in created)
+    if updated:
+        lines.extend(["", "Would update:"])
+        lines.extend(f"- {path}" for path in updated)
+    if unchanged:
+        lines.extend(["", "Already up to date:"])
+        lines.extend(f"- {path}" for path in unchanged[:10])
+        if len(unchanged) > 10:
+            lines.append(f"- ... and {len(unchanged) - 10} more")
+    lines.extend(["", "Next step:", "Re-run the same render command without `--dry-run` when the plan looks right."])
+    return "\n".join(lines)
+
+
 def render_targets(
     target_dir: Path,
     selected_targets: list[str],
     blueprint_path: Path,
     confirm_existing: bool = False,
-) -> None:
+    dry_run: bool = False,
+) -> dict:
     blueprint_text = read_text(blueprint_path)
     try:
         raw_spec = json.loads(extract_block(blueprint_text, SPEC_MARKERS, "spec"))
@@ -3776,12 +4837,40 @@ def render_targets(
             raise ValueError(summary + "\nRe-run with --confirm-existing after reviewing those paths.")
 
     recommendations = generate_recommendations(spec)
-    generated_paths = render_shared_files(target_dir, spec, recommendations)
+    if dry_run:
+        with tempfile.TemporaryDirectory(prefix="init-orch-dry-run-") as temp_dir_name:
+            staged_dir = Path(temp_dir_name)
+            if (target_dir / ".gitignore").exists():
+                write_text(staged_dir / ".gitignore", read_text(target_dir / ".gitignore"))
+            generated_paths = stage_render_outputs(staged_dir, spec, recommendations, selected_targets)
+            metadata = {
+                "version": 2,
+                "lastRenderedAt": "DRY_RUN",
+                "renderedTargets": selected_targets,
+                "generatedFiles": sorted(str(path.relative_to(staged_dir)) for path in generated_paths),
+                "specDigest": spec_digest(spec),
+                "bootstrapPreset": spec["preset"],
+                "workflowPreset": spec["workflowPreset"],
+                "domainPreset": spec["domainPreset"],
+                "resolvedImports": [
+                    {
+                        "id": item["id"],
+                        "type": item["type"],
+                        "targets": item["targets"],
+                        "version": item["version"],
+                    }
+                    for item in spec["imports"]
+                ],
+            }
+            updated_blueprint = replace_block(blueprint_text, GENERATED_MARKERS, metadata)
+            updated_blueprint = replace_block(updated_blueprint, RECOMMENDATION_MARKERS, recommendations)
+            write_text(staged_dir / "init-orch.md", updated_blueprint)
+            relative_paths = [str(path.relative_to(staged_dir)) for path in generated_paths]
+            relative_paths.append("init-orch.md")
+            print(render_preview_report(target_dir, staged_dir, relative_paths))
+            return {"dryRun": True, "generatedPaths": relative_paths}
 
-    if "cursor" in selected_targets:
-        generated_paths.extend(render_cursor_files(target_dir, spec, recommendations))
-    if "claude" in selected_targets:
-        generated_paths.extend(render_claude_files(target_dir, spec, recommendations))
+    generated_paths = stage_render_outputs(target_dir, spec, recommendations, selected_targets)
 
     metadata = {
         "version": 2,
@@ -3805,6 +4894,7 @@ def render_targets(
     updated_blueprint = replace_block(blueprint_text, GENERATED_MARKERS, metadata)
     updated_blueprint = replace_block(updated_blueprint, RECOMMENDATION_MARKERS, recommendations)
     write_text(blueprint_path, updated_blueprint)
+    return {"dryRun": False, "generatedPaths": [str(path.relative_to(target_dir)) for path in generated_paths]}
 
 
 def collect_selected_targets(args: argparse.Namespace) -> list[str]:
@@ -3825,7 +4915,16 @@ def should_run_guided_bootstrap(
     preset_explicit: bool,
 ) -> bool:
     blueprint_path = target_dir / "init-orch.md"
-    if blueprint_path.exists() or args.no_interactive or args.review or args.refine or args.suggest:
+    if (
+        blueprint_path.exists()
+        or args.no_interactive
+        or args.review
+        or args.parity
+        or args.refine
+        or args.suggest
+        or args.list_presets
+        or args.explain_preset
+    ):
         return False
     if args.interactive:
         return True
@@ -3840,17 +4939,50 @@ def should_run_guided_bootstrap(
 def main() -> int:
     args = parse_args()
     preset_explicit = "--preset" in sys.argv
+    operational_flags = [
+        args.init,
+        args.cursor,
+        args.claude,
+        args.all,
+        args.dry_run,
+        args.review,
+        args.parity,
+        args.refine,
+        args.suggest,
+        args.interactive,
+        args.no_interactive,
+        args.confirm_existing,
+        args.legacy_mode is not None,
+    ]
+    if args.list_presets:
+        if args.explain_preset or any(operational_flags) or preset_explicit:
+            print("Error: --list-presets must be used by itself.", file=sys.stderr)
+            return 1
+        print(list_presets_report())
+        return 0
+    if args.explain_preset:
+        if any(operational_flags) or preset_explicit:
+            print("Error: --explain-preset must be used by itself.", file=sys.stderr)
+            return 1
+        print(explain_preset_report(args.explain_preset))
+        return 0
     target_dir = Path(args.dir).expanduser().resolve()
     if not target_dir.is_dir():
         print(f"Error: target directory does not exist: {target_dir}", file=sys.stderr)
         return 1
 
     selected_targets = collect_selected_targets(args)
-    if args.confirm_existing and (args.review or args.refine or args.suggest or not selected_targets):
+    if args.dry_run and not selected_targets:
+        print("Error: --dry-run only applies to render commands.", file=sys.stderr)
+        return 1
+    if args.confirm_existing and (args.review or args.parity or args.refine or args.suggest or not selected_targets):
         print("Error: --confirm-existing only applies to render commands.", file=sys.stderr)
         return 1
-    if args.review and (args.init or selected_targets or args.refine or args.suggest):
-        print("Error: --review cannot be combined with --init, --cursor, --claude, --all, --refine, or --suggest.", file=sys.stderr)
+    if args.review and (args.init or selected_targets or args.parity or args.refine or args.suggest):
+        print("Error: --review cannot be combined with --init, --cursor, --claude, --all, --parity, --refine, or --suggest.", file=sys.stderr)
+        return 1
+    if args.parity and (args.init or selected_targets or args.refine or args.suggest):
+        print("Error: --parity cannot be combined with --init, --cursor, --claude, --all, --refine, or --suggest.", file=sys.stderr)
         return 1
     if args.refine and (args.init or selected_targets or args.suggest):
         print("Error: --refine cannot be combined with --init, --cursor, --claude, --all, or --suggest.", file=sys.stderr)
@@ -3866,6 +4998,22 @@ def main() -> int:
             return 1
         try:
             print(review_blueprint(target_dir, blueprint_path))
+        except ValueError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
+        return 0
+
+    if args.parity:
+        if not blueprint_path.exists():
+            print("Error: init-orch.md does not exist yet. Run init-orch first.", file=sys.stderr)
+            return 1
+        try:
+            blueprint_text = read_text(blueprint_path)
+            raw_spec = require_dict(parse_blueprint_block(blueprint_text, SPEC_MARKERS, "spec"), "spec")
+            spec = normalize_spec(raw_spec)
+            metadata = load_generated_metadata(blueprint_text)
+            snapshot = build_parity_snapshot(target_dir, spec, metadata)
+            print(format_parity_report(target_dir, spec, metadata, snapshot))
         except ValueError as exc:
             print(f"Error: {exc}", file=sys.stderr)
             return 1
@@ -3907,19 +5055,9 @@ def main() -> int:
     if created:
         print(f"Created {blueprint_path} using preset '{bootstrap_preset}'.")
         if guided_bootstrap_used:
-            effective_targets = guided_targets or selected_targets
-            next_render = (
-                f"init-orch --{effective_targets[0]}"
-                if len(effective_targets) == 1
-                else "init-orch --all"
-            )
-            print("Start with mission, success criteria, verification, and roles in init-orch.md.")
-            print("Run init-orch --suggest if you want a repo-aware first draft for summary, mission, and verification.")
-            print(f"Then run {next_render} to compile the first target files.")
-            print("After the first render, run init-orch --refine to tailor the setup to the repo.")
-            print("Later, run init-orch --review when you want practical setup feedback.")
+            print(f"Next: run {first_render_command(guided_targets or selected_targets)} to generate the first target files.")
         if selected_targets:
-            print("Refine init-orch.md, then rerun init-orch to compile the target files.")
+            print("Next: review init-orch.md if needed, then rerun the same render command.")
             return 0
     elif preset_explicit:
         print(f"Preset '{args.preset}' ignored because init-orch.md already exists.")
@@ -3928,20 +5066,27 @@ def main() -> int:
         if guided_bootstrap_used:
             return 0
         if args.init or created:
-            print("init-orch.md is ready. Fill it in, optionally run --suggest, then rerun with --cursor, --claude, or --all.")
+            print(f"Next: run {first_render_command(selected_targets or list(VALID_TARGETS))} when you're ready for the first render.")
             return 0
-        print("Nothing to render yet. Edit init-orch.md, optionally run --suggest, then use --cursor, --claude, or --all.")
+        print(f"Next: run {first_render_command(list(VALID_TARGETS))} after reviewing init-orch.md.")
         return 0
 
     try:
-        render_targets(target_dir, selected_targets, blueprint_path, confirm_existing=args.confirm_existing)
+        render_result = render_targets(
+            target_dir,
+            selected_targets,
+            blueprint_path,
+            confirm_existing=args.confirm_existing,
+            dry_run=args.dry_run,
+        )
     except ValueError as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
 
+    if render_result["dryRun"]:
+        return 0
     print("Rendered orchestration files for " + ", ".join(selected_targets) + f" in {target_dir}")
-    print("Next: run init-orch --refine to tailor the setup to this repo.")
-    print("Then use init-orch --review for periodic repo-specific recommendations.")
+    print(next_step_message("init-orch --refine", "to tailor the setup to this repo."))
     return 0
 
 

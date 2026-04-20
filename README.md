@@ -1,42 +1,69 @@
 # init-orch
 
-`init-orch` is the practical runtime behind Zubeldia: a simple loop for solo coders who want to bootstrap an agent setup quickly, suggest a stronger repo-aware first draft, compile it from one source of truth, refine it for the actual repo, and review it deliberately over time.
+`init-orch` is a small compiler for repo-local agent setup.
+
+It helps you go from zero to a usable Cursor/Claude setup quickly, then improve it later without hand-maintaining `.cursor/`, `.claude/`, `AGENTS.md`, and related files separately.
 
 Project's name on [Osvaldo Zubeldía](https://es.wikipedia.org/wiki/Osvaldo_Zubeld%C3%ADa), former DT Estudiantes de La Plata, world-champion 1968.
 
-Instead of hand-editing `.cursor/`, `.claude/`, `AGENTS.md`, and related config files, you describe the workflow once in `init-orch.md` and generate the tool-specific files from that blueprint.
+Instead of hand-editing `.cursor/`, `.claude/`, `AGENTS.md`, and related config files, you describe the workflow once in `init-orch.md` and generate the target-specific files from that blueprint.
 
-## Quickstart
+## 101
 
-The shortest useful path is:
+The minimal first-run path is:
 
 ```bash
 init-orch
-init-orch --suggest
 init-orch --all
-init-orch --refine
-init-orch --review
 ```
+
+That is the default path to a usable setup. Expect roughly:
+
+- 2-5 minutes to bootstrap `init-orch.md` and render the first Cursor/Claude files
+- 10-20 minutes if you also want to use `--suggest` and `--refine` for a more repo-native setup
+
+If you only remember one thing, remember this:
+
+- start with `init-orch`
+- get to a first render with `init-orch --all`
+- use `--suggest`, `--refine`, `--review`, and `--parity` only when they solve a real problem for the repo
 
 ## When To Use What
 
 | Command | Use it when | What it does |
 | --- | --- | --- |
 | `init-orch` | You are starting from scratch | Creates the first draft of `init-orch.md` |
+| `init-orch --list-presets` | You want to compare preset options quickly | Lists workflows, domains, composed presets, and recommended defaults |
+| `init-orch --explain-preset <name>` | You want to understand one preset before choosing it | Explains the preset's working-style bias, repo-shape bias, and default emphasis |
 | `init-orch --suggest` | You want a better first ansatz | Proposes repo-aware updates for summary, mission, success criteria, and verification |
 | `init-orch --all` | You are ready to compile the setup | Generates the tool-specific files from `init-orch.md` |
+| `init-orch --all --dry-run` | You want to review generated changes before writing | Previews which generated files would be created or updated |
 | `init-orch --refine` | The first render exists and you want repo-specific detail | Adds checks, sensitive paths, and conventions back into the spec |
 | `init-orch --review` | The setup feels stale or off | Prints practical recommendations without rewriting files |
+| `init-orch --parity` | You want to inspect Cursor/Claude alignment directly | Explains what is shared vs target-specific and surfaces parity drift |
 
 ## Workflow Diagram
 
 ```mermaid
 flowchart LR
-    Bootstrap[init-orch] --> Suggest[--suggest]
-    Suggest --> Compile[--all]
+    Bootstrap[init-orch] --> Compile[--all]
     Compile --> Refine[--refine]
     Refine --> Review[--review]
+    Suggest[--suggest optional] -.-> Compile
 ```
+
+## Mental Model
+
+`init-orch.md` is the only high-level file you edit directly.
+
+Everything else is generated from it:
+
+- `AGENTS.md`
+- `orch/*`
+- `.cursor/*`
+- `.claude/*`
+
+That is the core product promise: one editable blueprint, many generated outputs, deliberate maintenance over time.
 
 ## The Product Loop
 
@@ -55,13 +82,19 @@ The bootstrap flow is intentionally small. It asks only for:
 - target platforms
 - a risk posture
 
-It then creates a ready-to-edit `init-orch.md` and points you to the next fields worth refining.
+It then creates a ready-to-edit `init-orch.md`. In the common case, you can render immediately with:
+
+```bash
+init-orch --all
+```
 
 If you already know what you want, you can skip the prompts and bootstrap directly:
 
 ```bash
 init-orch --preset engineering-web-app --no-interactive
 ```
+
+The preset is only the starting point. After bootstrap, edit `init-orch.md` to override any default.
 
 ### Compile
 
@@ -82,6 +115,12 @@ That generates:
 
 The compile step is the strongest idea in the project: one high-level spec, many generated outputs, explicit review before changing the setup.
 
+If you want a review-first workflow, preview the render plan before writing files:
+
+```bash
+init-orch --all --dry-run
+```
+
 If `init-orch` detects existing owned-looking structure such as `orch/`, `.cursor/`, `.claude/`, `AGENTS.md`, or an existing `.gitignore` line update, it will stop and ask for confirmation in a terminal. In non-interactive runs, re-run with:
 
 ```bash
@@ -90,13 +129,13 @@ init-orch --all --confirm-existing
 
 ### Suggest
 
-If you want a better first ansatz before rendering, ask for a repo-aware proposal:
+If you want a better first ansatz before or after the first render, ask for a repo-aware proposal:
 
 ```bash
 init-orch --suggest
 ```
 
-This samples a bounded amount of repo evidence, prioritizes existing orchestration artifacts such as `init-orch.md`, `AGENTS.md`, `.cursor/`, `.claude/`, and `orch/`, and then proposes updates for `project.summary`, `project.mission`, `project.successCriteria`, and `verification`. It prints the proposal first and only applies it if you confirm.
+This samples a bounded amount of repo evidence, prioritizes existing orchestration artifacts such as `init-orch.md`, `AGENTS.md`, `.cursor/`, `.claude/`, and `orch/`, and then proposes updates for `project.summary`, `project.mission`, `project.successCriteria`, and `verification`. For verification it now prefers real repo checks from scripts, CI, and language-specific config over weaker generic fallbacks, and keeps docs-oriented checks separate from code-oriented checks. The report now also explains why each recommendation was made, groups evidence into identity/workflow/verification/safety buckets, and asks targeted questions when confidence is low instead of guessing aggressively. It prints the proposal first and only applies it if you confirm.
 
 ### Refine
 
@@ -108,6 +147,8 @@ init-orch --refine
 
 This asks for a short second pass of repo-specific details such as the most important verification command, sensitive paths, and existing conventions. The goal is to keep bootstrap minimal while still making the setup feel native to the repo.
 
+When refine notes already exist, `init-orch --refine` now keeps them by default and only re-asks those fields if you choose to update them.
+
 ### Review
 
 When the setup feels stale or off, ask for a deliberate review:
@@ -116,9 +157,19 @@ When the setup feels stale or off, ask for a deliberate review:
 init-orch --review
 ```
 
-This prints a short snapshot, immediate actions, and practical setup recommendations without rewriting files. It now also tries to surface repo-specific issues such as path collisions, missing canonical verification commands, and workspace-style structure. The goal is not an always-on orchestration brain. The goal is a lightweight review loop that helps you tighten the setup when it matters.
+This prints a short snapshot, top immediate actions, and practical setup recommendations without rewriting files. It now also tries to surface repo-specific issues such as path collisions, missing canonical verification commands, and workspace-style structure, while suppressing unchanged setup recommendations that have already been recorded. The goal is not an always-on orchestration brain. The goal is a lightweight review loop that helps you tighten the setup when it matters.
 
-## Why This Is Useful
+### Parity
+
+If you want to inspect the cross-target value directly, run:
+
+```bash
+init-orch --parity
+```
+
+This explains what is shared between Cursor and Claude, what each target gets specifically, which target-specific overrides exist, and whether drift has appeared because one target was rendered more recently than the other.
+
+## Why Use It
 
 This is aimed at solo coders and small independent setups, not enterprise governance.
 
@@ -139,6 +190,17 @@ Presets use `workflow-domain` form, for example:
 - `research-docs`
 - `engineering-web-app`
 - `poc-data-science`
+
+Think of a preset as a first draft, not a lock-in. It pre-fills defaults for workflow bias, verification, safety posture, `responseStyle`, and generated guidance. You can then change any field in `init-orch.md`.
+
+If you want help choosing before you commit, use:
+
+```bash
+init-orch --list-presets
+init-orch --explain-preset engineering-web-app
+```
+
+The workflow controls the working style. The domain controls the repo-shape bias.
 
 Available workflows:
 
@@ -163,11 +225,26 @@ The default preset is `engineering-generic`.
 
 `project.riskPosture` stays separate from the preset so you can tune how cautious the setup should be.
 
+`responseStyle` is preset-aware by default, so `research-*`, `engineering-*`, `docs-*`, and other preset families start with meaningfully different response behavior. It still stays fully editable in `init-orch.md`.
+
+After bootstrap, `init-orch.md` should make the provenance explicit:
+
+- `preset`, `workflowPreset`, and `domainPreset` tell you which starting draft was used
+- many initial defaults come from that preset plus your bootstrap answers
+- every field in the spec remains editable
+
+Typical override flow:
+
+1. Pick the closest preset.
+2. Run `init-orch` or `init-orch --preset ... --no-interactive`.
+3. Edit `init-orch.md` to change mission, `responseStyle`, verification, roles, imports, or anything else.
+4. Re-run `init-orch --all`.
+
 ## What To Fill In First
 
 If the project is still fuzzy, do not try to perfect the whole spec.
 
-1. Start with project shape and guardrails: `preset`, mission, success criteria, targets, stop conditions, verification, and `toolPolicy`.
+1. Start with project shape and guardrails: `preset`, mission, success criteria, `responseStyle`, targets, stop conditions, verification, and `toolPolicy`.
 2. Add roles, handoffs, and high-level rules.
 3. Add imports, MCPs, and target-specific overrides once the core workflow is clear.
 4. Add skills after that.
@@ -210,12 +287,51 @@ init-orch --review
 
 If you want a full walkthrough, see `docs/tutorial-101.md`. For the step-by-step reference version, see `docs/quickstart.md`.
 
-## Roadmap
+## Implementation Roadmap
 
-Planned next steps:
+The product roadmap should feel like a practical upgrade path, not a feature buffet:
 
-- keep improving the bootstrap flow while preserving a fast non-interactive path
-- make the refine step smarter without turning it into a long interview
-- strengthen review recommendations with limited local context
-- improve target-specific rendering without bloating the core workflow
-- explore additional adapters after the bootstrap and review loop feel solid
+1. First run: bootstrap quickly and render a usable setup in minutes.
+2. Repo fit: improve the first draft with `--suggest` and `--refine` when the repo needs more specificity.
+3. Maintenance: use `--review` and `--parity` to keep the setup aligned and lightweight over time.
+4. Later add-ons: only consider more adapters and deeper integrations after the core loop stays fast and trustworthy.
+
+Future add-ons, not current priorities:
+
+- evaluate antigravity and other tool integrations only after the core Cursor/Claude parity and review loop feel solid
+
+## Positioning
+
+`init-orch` sits in a narrow middle ground:
+
+- more reusable than a one-off template repo
+- more workflow-aware than a one-shot rule generator
+- much smaller in scope than a full agent runtime or orchestration platform
+
+Compared with rule/template tools:
+
+- they are often faster if you only want a starting file set
+- `init-orch` is better when you want one editable source of truth and a maintenance loop after day zero
+
+Compared with larger orchestration platforms:
+
+- they do more at runtime
+- `init-orch` does less on purpose
+- it focuses on repo-local setup, generated guidance, verification expectations, and cross-target consistency
+
+### Honest Assessment
+
+This is useful when:
+
+- you want a ready-to-use first render quickly
+- you want Cursor and Claude kept in sync from one source of truth
+- you care about reviewability more than raw feature count
+
+This is not useful when:
+
+- one hand-written `AGENTS.md` is already enough
+- the generated files feel heavier than the problem
+- the setup loop becomes more complex than the repo it supports
+- you actually need an agent runtime rather than a setup compiler
+
+The crude test is simple: if `init-orch` does not save time within the first week, it is too heavy and should be simplified again.

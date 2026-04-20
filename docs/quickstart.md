@@ -1,16 +1,28 @@
 # Quickstart
 
-`init-orch` works best as a practical five-step loop:
+`init-orch` works best as a practical loop, but the first useful path should feel plug-and-play:
 
 1. Bootstrap a repository with a short interactive setup.
-2. Ask for a repo-aware suggestion pass when you want a better first ansatz.
-3. Compile one source of truth into tool-specific files.
-4. Refine the setup with repo-specific details after the first render.
-5. Review the setup deliberately when it starts feeling off.
+2. Compile one source of truth into tool-specific files.
+3. Use `--suggest`, `--refine`, `--review`, and `--parity` later only when they solve a real repo problem.
 
 `init-orch.md` is the only high-level file you should edit directly. The generated files under `.cursor/`, `.claude/`, `AGENTS.md`, and `orch/` are derived outputs.
 
 > Security warning: enabling edit, write, delete, shell, network, or external tool access can expose code, secrets, and local data to irreversible changes or exfiltration. Start with least privilege and require approval for high-impact actions.
+
+## Fastest Useful Setup
+
+If you want a minimal working agentic setup quickly, the shortest path is:
+
+```bash
+init-orch
+# fill in the short bootstrap prompts
+init-orch --all
+```
+
+That is usually enough to get a first ready-to-use Cursor/Claude structure in about 2-5 minutes.
+
+If you also want better repo-specific verification, response style, cross-target checks, and safer defaults for a real repository, expect closer to 10-20 minutes with `--suggest`, `--refine`, `--review`, and `--parity`.
 
 ## 1. Bootstrap
 
@@ -33,7 +45,32 @@ If you prefer to skip the prompts, bootstrap directly:
 init-orch --preset research-docs --no-interactive
 ```
 
+The preset is only a first draft. After bootstrap, edit `init-orch.md` to override any default.
+
+In the generated file, `preset`, `workflowPreset`, and `domainPreset` record where the starting draft came from. The rest of the spec is still yours to change freely.
+
+That includes `responseStyle`: presets now start with different response defaults for research, engineering, docs, and other repo shapes, but you can still edit tone, verbosity, structure, rules, length, and examples directly.
+
+If you want the fastest path to a working setup, the best next step after bootstrap is:
+
+```bash
+init-orch --all
+```
+
 Presets are composed as `workflow-domain`.
+
+If you want to inspect them before you choose, run:
+
+```bash
+init-orch --list-presets
+init-orch --explain-preset engineering-web-app
+```
+
+Think of them this way:
+
+- the workflow sets the working bias: research, engineering, or poc
+- the domain sets the repo shape bias: generic, web-app, data-science, infra, docs, or multimedia
+- the result is a starting default, not a lock-in
 
 Workflows:
 
@@ -56,6 +93,21 @@ Domains:
 
 The default preset is `engineering-generic`.
 
+If you are unsure, use:
+
+- `engineering-generic` for most software repos
+- `research-docs` for exploratory or writing-heavy work
+- `engineering-web-app` for UI/product work
+- `poc-data-science` for notebook/experiment-heavy exploration
+
+Typical override flow:
+
+1. Pick the closest preset.
+2. Bootstrap with `init-orch` or `init-orch --preset ... --no-interactive`.
+3. Run `init-orch --all` for the first render.
+4. Edit `init-orch.md` to change mission, `responseStyle`, verification, roles, imports, or anything else.
+5. Re-run `init-orch --all`.
+
 ## 2. Suggest
 
 If you want help filling the hardest fields in `init-orch.md`, run:
@@ -71,14 +123,20 @@ This samples a bounded amount of repo evidence, prioritizes existing orchestrati
 - `project.successCriteria`
 - `verification`
 
-It prints the proposal first and only applies it if you confirm.
+It prefers real repo checks from scripts, CI, and language-specific config over weaker generic fallbacks, and keeps docs-oriented checks separate from code-oriented checks. It also explains why each recommendation was made, groups evidence into identity/workflow/verification/safety buckets, and asks targeted questions when confidence is low instead of guessing aggressively. It prints the proposal first and only applies it if you confirm.
 
 ## 3. Compile
 
-After bootstrap, refine `init-orch.md` and then render the target-specific outputs:
+After bootstrap, render the target-specific outputs:
 
 ```bash
 init-orch --all
+```
+
+If you want to review the generated plan before writing files, use:
+
+```bash
+init-orch --all --dry-run
 ```
 
 Or render only one target:
@@ -98,7 +156,7 @@ init-orch --all --confirm-existing
 
 If you are not fully sure what the project should look like yet, use this order:
 
-1. Project shape and guardrails: preset, mission, success criteria, targets, stop conditions, verification, and `toolPolicy`.
+1. Project shape and guardrails: preset, mission, success criteria, `responseStyle`, targets, stop conditions, verification, and `toolPolicy`.
    This mainly affects `orch/permissions.policy.json`, Claude settings/rules, core workflow rules, and recommendation quality.
 2. Roles and collaboration shape: roles, handoffs, and repository rules.
    This mainly affects `AGENTS.md` and Claude agent files.
@@ -128,6 +186,8 @@ This is a short second pass for high-value repo details such as:
 - sensitive directories or file patterns
 - existing conventions the generated setup should respect
 
+If refine notes already exist, the command keeps them by default and only re-asks those answers if you choose to update them.
+
 ## 5. Review
 
 When the setup feels stale, run:
@@ -136,7 +196,17 @@ When the setup feels stale, run:
 init-orch --review
 ```
 
-This prints a short snapshot, immediate actions, and setup recommendations without rewriting files. It also tries to surface repo-specific issues such as missing canonical verification commands, workspace-style structure, or existing generated-path collisions. Treat it as an opt-in review loop, not an autonomous control plane.
+This prints a short snapshot, top immediate actions, and setup recommendations without rewriting files. It also tries to surface repo-specific issues such as missing canonical verification commands, workspace-style structure, or existing generated-path collisions, while suppressing unchanged setup recommendations that have already been recorded. Treat it as an opt-in review loop, not an autonomous control plane.
+
+## 6. Parity
+
+If you want to inspect Cursor/Claude alignment directly, run:
+
+```bash
+init-orch --parity
+```
+
+This shows what is shared between both targets, what each target gets specifically, which overrides are target-specific, and whether drift has appeared because one target was rendered while the other was left behind.
 
 ## Minimal example
 
@@ -285,6 +355,7 @@ You do not need to perfect every field before rendering. A solid first pass is:
 
 - choose the preset
 - write the project mission and success criteria
+- set `responseStyle` if you already know the tone and brevity you want
 - define stop conditions, verification, and approvals
 - add the core roles
 - leave imports, skills, and evaluation lighter until the workflow feels real
