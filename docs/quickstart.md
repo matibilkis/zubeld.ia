@@ -161,13 +161,30 @@ If you are not fully sure what the project should look like yet, use this order:
 2. Roles and collaboration shape: roles, handoffs, and repository rules.
    This mainly affects `AGENTS.md` and Claude agent files.
 3. Capabilities and integrations: imports, MCPs, and target overrides.
-   This mainly affects imports manifests, `orch/imports.lock.json`, and Cursor MCP output when relevant.
+   This mainly affects imports manifests, `orch/imports.lock.json`, and Cursor MCP output when relevant. The default `find-skills` import is an optional template you can keep, copy, or delete.
 4. Reusable accelerators: skills.
    This mainly affects Cursor and Claude skill files.
 5. Meta-iteration: evaluation and review refinements.
    This mainly affects `orch/evaluation.plan.json` and the long-term setup loop.
 
 For a first useful pass, steps 1 and 2 are enough. The rest can stay rough until after the first render.
+
+## Imports, MCPs, and skills
+
+Keep this part simple at first:
+
+- `mcp` imports are the only imports that currently drive MCP wiring. They can show up in `orch/imports.lock.json`, per-target manifests, and `.cursor/mcp.json` when the transport is defined.
+- `skillPack` and `capabilityPack` imports are declarative today. `init-orch` records them, but it does not fetch or install them for you.
+- Top-level `skills` and `provides.skills` from imports both feed the generated skill files.
+- The default `find-skills` import is there as a working template for other external skills. Copy it and change `id`, `source`, notes, and provided skill details.
+
+Recommended order:
+
+1. Keep the default `find-skills` import only as a template, or delete it if you do not want an external skill example yet.
+2. Copy that entry when you want to add another external skill, or add an `mcp` import when you need an external tool surface.
+3. Add reusable `skills` after repeated patterns are worth codifying.
+4. Treat automatic import resolution or installation as future work, not current behavior.
+
 
 If `init-orch.md` already exists, the preset is ignored and your existing blueprint is preserved.
 
@@ -232,6 +249,18 @@ Keep the rest of the file as generated and replace the spec block with something
     "maturity": "growing"
   },
   "targets": ["cursor", "claude"],
+  "verification": [
+    {
+      "changeType": "code",
+      "required": ["Run focused tests or explain why none were available."]
+    }
+  ],
+  "toolPolicy": {
+    "allow": ["Read(*)", "Glob(*)", "Grep(*)", "WebFetch", "WebSearch"],
+    "risky": ["Edit(*)", "Write(*)", "Bash(*)"],
+    "deny": ["Bash(rm -rf *)", "Bash(sudo *)"],
+    "requiresApproval": ["Bash(*)", "Edit(.env*)"]
+  },
   "roles": [
     {
       "id": "planner",
@@ -252,10 +281,6 @@ Keep the rest of the file as generated and replace the spec block with something
       "deliverables": ["Recommendations"]
     }
   ],
-  "rules": [
-    "Ask before destructive actions.",
-    "Run focused tests after changes."
-  ],
   "workflow": {
     "planningTrigger": "Plan first for non-trivial work.",
     "implementationFocus": "Prefer the smallest safe change.",
@@ -272,12 +297,46 @@ Keep the rest of the file as generated and replace the spec block with something
       "Stop when risk is too high without human review."
     ]
   },
-  "verification": [
+  "rules": [
+    "Ask before destructive actions.",
+    "Run focused tests after changes."
+  ],
+  "imports": [
     {
-      "changeType": "code",
-      "required": ["Run focused tests or explain why none were available."]
+      "id": "find-skills",
+      "type": "skillPack",
+      "source": "https://skills.sh/vercel-labs/skills/find-skills",
+      "version": "reference",
+      "targets": ["cursor", "claude"],
+      "note": "Optional template import for external skills. Copy this entry for other skills or delete it if unused.",
+      "trust": {
+        "level": "reference",
+        "reviewedByHuman": true
+      },
+      "provides": {
+        "notes": [
+          "Template import for skills.sh-compatible skills. Duplicate it and change `id`, `source`, and provided skill details for other imports."
+        ],
+        "skills": [
+          {
+            "id": "find-skills",
+            "when": "Use when you need to discover a specialized external skill or workflow.",
+            "steps": [
+              "Identify the domain and the exact task you need help with.",
+              "Search for a relevant skill and verify source quality before adoption.",
+              "Record the chosen skill back in `init-orch.md` before relying on it."
+            ],
+            "outputs": ["Skill candidates", "Adoption note", "Follow-up import update"]
+          }
+        ]
+      }
     }
   ],
+  "targetOverrides": {
+    "claude": {
+      "notes": ["Keep `.claude/settings.local.json` uncommitted."]
+    }
+  },
   "skills": [
     {
       "id": "change-plan",
@@ -290,12 +349,6 @@ Keep the rest of the file as generated and replace the spec block with something
       "outputs": ["Plan", "Checks"]
     }
   ],
-  "toolPolicy": {
-    "allow": ["Read(*)", "Glob(*)", "Grep(*)", "WebFetch", "WebSearch"],
-    "risky": ["Edit(*)", "Write(*)", "Bash(*)"],
-    "deny": ["Bash(rm -rf *)", "Bash(sudo *)"],
-    "requiresApproval": ["Bash(*)", "Edit(.env*)"]
-  },
   "evaluation": {
     "cadence": "After meaningful workflow changes.",
     "signals": [
@@ -307,38 +360,6 @@ Keep the rest of the file as generated and replace the spec block with something
       "Keep safety high."
     ],
     "recommendationFormat": "Short actionable recommendations."
-  },
-  "imports": [
-    {
-      "id": "design-pack",
-      "type": "skillPack",
-      "source": "https://ui-ux-pro-max-skill.nextlevelbuilder.io/",
-      "version": "reference",
-      "targets": ["cursor", "claude"],
-      "trust": { "level": "review-required", "reviewedByHuman": false },
-      "provides": {
-        "notes": ["Review the pack before relying on it in production."],
-        "skills": []
-      }
-    },
-    {
-      "id": "example-mcp",
-      "type": "mcp",
-      "source": "npm:example-mcp-server",
-      "version": "latest",
-      "targets": ["cursor"],
-      "trust": { "level": "review-required", "reviewedByHuman": false },
-      "transport": {
-        "type": "stdio",
-        "command": "npx",
-        "args": ["-y", "example-mcp-server"],
-        "env": {}
-      },
-      "provides": {
-        "notes": ["Review the MCP tool surface before enabling it."],
-        "skills": []
-      }
-    }
   },
   "claude": {
     "settingsLocalExample": {
@@ -358,7 +379,7 @@ You do not need to perfect every field before rendering. A solid first pass is:
 - set `responseStyle` if you already know the tone and brevity you want
 - define stop conditions, verification, and approvals
 - add the core roles
-- leave imports, skills, and evaluation lighter until the workflow feels real
+- keep the default `find-skills` import only as a template, and keep the rest of imports, skills, and evaluation lighter until the workflow feels real
 
 Then run:
 
@@ -393,4 +414,4 @@ init-orch --refine
 init-orch --review
 ```
 
-That gives you a better first draft for UI-oriented workflow, verification, and imports than the generic default.
+That gives you a better first draft for UI-oriented workflow and verification than the generic default. Keep or replace the default `find-skills` import only if the repo really needs external skills.

@@ -108,6 +108,18 @@ For non-interactive runs:
 init-orch --all --confirm-existing
 ```
 
+## Optional integrations later
+
+The first useful render does not require more imports than the default template entry.
+
+- keep the default `find-skills` import only as a template, or delete it if you do not want an external skill example yet
+- `mcp` imports are the only ones that currently affect MCP wiring
+- `skillPack` and `capabilityPack` imports are declarative today, not installed automatically
+- copy the default `find-skills` import when you want to model another external skill
+- add reusable `skills` only after repeated work patterns are real
+
+For the exact roadmap and behavior, see `README.md` or `docs/quickstart.md`.
+
 ## Optional Step 3: Refine
 
 After the first render, tailor the setup to the actual repository:

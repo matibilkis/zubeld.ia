@@ -13,10 +13,16 @@ The richer blueprint now supports:
 - import declarations for MCPs and external capability packs
 - explicit security warnings around powerful permissions
 
+Import roadmap, as intended today:
+- first render should work with the default `find-skills` import left in place only as a template, or removed entirely
+- `mcp` imports can drive manifests and Cursor MCP config
+- other import types stay declarative until a future resolver/installer exists
+- the default `find-skills` import shows how to model other external skill imports
+
 It also follows an importance-first order:
 - start with project shape, verification, stop conditions, and permission boundaries
 - add roles and handoffs next
-- add imports, MCPs, skills, and evaluator refinements after the core workflow feels right
+- add imports, MCPs, skills, and evaluator refinements only after the core workflow feels right
 
 Typical flow:
 

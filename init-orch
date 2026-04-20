@@ -128,6 +128,7 @@ PRIORITY_GUIDANCE = [
         "level": "Priority 1",
         "action": "Start here",
         "title": "Project shape and guardrails",
+        "note": "A solid first render usually only needs this priority plus Priority 2.",
         "fields": [
             "`preset`, `workflowPreset`, `domainPreset`",
             "`project.summary`, `project.mission`, `project.successCriteria`",
@@ -147,6 +148,7 @@ PRIORITY_GUIDANCE = [
         "level": "Priority 2",
         "action": "Add next",
         "title": "Roles and collaboration shape",
+        "note": "Add the smallest collaboration loop that makes reviews and handoffs obvious.",
         "fields": [
             "`roles`",
             "`handoffs`",
@@ -162,6 +164,7 @@ PRIORITY_GUIDANCE = [
         "level": "Priority 3",
         "action": "Add once the core workflow is clear",
         "title": "Capabilities and integrations",
+        "note": "Keep this light on the first render. The default `find-skills` entry is an optional template you can keep, copy, or delete.",
         "fields": [
             "`imports`",
             "MCP declarations",
@@ -177,6 +180,7 @@ PRIORITY_GUIDANCE = [
         "level": "Priority 4",
         "action": "Optional for now",
         "title": "Reusable accelerators",
+        "note": "Add reusable skills only after you notice repeated patterns worth codifying.",
         "fields": [
             "`skills`",
         ],
@@ -189,6 +193,7 @@ PRIORITY_GUIDANCE = [
         "level": "Priority 5",
         "action": "Tune later",
         "title": "Meta-iteration",
+        "note": "Use this after real work has happened and you have evidence that the setup should change.",
         "fields": [
             "`evaluation`",
             "evaluator-role refinements",
@@ -638,6 +643,7 @@ def render_priority_guidance(workflow: str, domain: str) -> list[str]:
         "## What To Fill In First",
         "",
         "If your project idea is still fuzzy, make the Priority 1 and 2 decisions first. You can leave later priorities rough or incomplete until after the first render.",
+        "The top-level JSON keys below follow the same order, so you can edit from top to bottom without hunting around.",
         "",
     ]
     for entry in PRIORITY_GUIDANCE:
@@ -646,6 +652,8 @@ def render_priority_guidance(workflow: str, domain: str) -> list[str]:
                 f"### {entry['level']}: {entry['title']}",
                 "",
                 f"{entry['action']}. Decide:",
+                entry["note"],
+                "",
                 bullet_lines(entry["fields"], "Add the relevant fields."),
                 "",
                 "This mainly influences:",
@@ -3335,6 +3343,33 @@ def base_blueprint_spec(repo_name: str) -> dict:
         },
         "responseStyle": response_style_profile("engineering"),
         "targets": ["cursor", "claude"],
+        "verification": [
+            {
+                "changeType": "code",
+                "required": ["Run focused tests or explain why none were available."],
+            },
+            {
+                "changeType": "config",
+                "required": ["Review generated files before enabling broad permissions."],
+            },
+        ],
+        "toolPolicy": DEFAULT_TOOL_POLICY,
+        "workflow": {
+            "planningTrigger": "Plan first for non-trivial or ambiguous changes.",
+            "implementationFocus": "Prefer the smallest safe change that improves the repository.",
+            "reviewChecklist": [
+                "Confirm behavior changed as intended.",
+                "Check for missing verification.",
+            ],
+            "escalation": [
+                "Escalate when requirements are ambiguous.",
+                "Escalate before destructive actions or production-impacting changes.",
+            ],
+            "stopConditions": [
+                "Stop when missing credentials or required access blocks progress.",
+                "Stop when the requested action would be unsafe without human review.",
+            ],
+        },
         "roles": [
             {
                 "id": "planner",
@@ -3378,22 +3413,6 @@ def base_blueprint_spec(repo_name: str) -> dict:
             "Prefer focused verification after changes.",
             "Do not edit secrets or production credentials.",
         ],
-        "workflow": {
-            "planningTrigger": "Plan first for non-trivial or ambiguous changes.",
-            "implementationFocus": "Prefer the smallest safe change that improves the repository.",
-            "reviewChecklist": [
-                "Confirm behavior changed as intended.",
-                "Check for missing verification.",
-            ],
-            "escalation": [
-                "Escalate when requirements are ambiguous.",
-                "Escalate before destructive actions or production-impacting changes.",
-            ],
-            "stopConditions": [
-                "Stop when missing credentials or required access blocks progress.",
-                "Stop when the requested action would be unsafe without human review.",
-            ],
-        },
         "handoffs": [
             {
                 "from": "planner",
@@ -3406,16 +3425,42 @@ def base_blueprint_spec(repo_name: str) -> dict:
                 "expects": ["Diff summary", "Verification notes", "Known risks"],
             },
         ],
-        "verification": [
+        "imports": [
             {
-                "changeType": "code",
-                "required": ["Run focused tests or explain why none were available."],
-            },
-            {
-                "changeType": "config",
-                "required": ["Review generated files before enabling broad permissions."],
-            },
+                "id": "find-skills",
+                "type": "skillPack",
+                "source": "https://skills.sh/vercel-labs/skills/find-skills",
+                "version": "reference",
+                "targets": ["cursor", "claude"],
+                "note": "Optional template import for external skills. Copy this entry for other skills or delete it if unused.",
+                "trust": {"level": "reference", "reviewedByHuman": True},
+                "provides": {
+                    "notes": [
+                        "Template import for skills.sh-compatible skills. Duplicate it and change `id`, `source`, and provided skill details for other imports."
+                    ],
+                    "skills": [
+                        {
+                            "id": "find-skills",
+                            "when": "Use when you need to discover a specialized external skill or workflow.",
+                            "steps": [
+                                "Identify the domain and the exact task you need help with.",
+                                "Search for a relevant skill and verify source quality before adoption.",
+                                "Record the chosen skill back in `init-orch.md` before relying on it."
+                            ],
+                            "outputs": ["Skill candidates", "Adoption note", "Follow-up import update"]
+                        }
+                    ],
+                },
+            }
         ],
+        "targetOverrides": {
+            "cursor": {
+                "alwaysApplyRules": ["core", "orchestrator-policy", "workflow", "evaluation"]
+            },
+            "claude": {
+                "notes": ["Keep `.claude/settings.local.json` uncommitted."],
+            },
+        },
         "skills": [
             {
                 "id": "change-plan",
@@ -3428,7 +3473,6 @@ def base_blueprint_spec(repo_name: str) -> dict:
                 "outputs": ["Plan", "Verification checklist"],
             }
         ],
-        "toolPolicy": DEFAULT_TOOL_POLICY,
         "evaluation": {
             "cadence": "Review after meaningful project changes or when the workflow feels brittle.",
             "signals": [
@@ -3441,45 +3485,6 @@ def base_blueprint_spec(repo_name: str) -> dict:
                 "Improve safety without making normal work painful.",
             ],
             "recommendationFormat": "Short actionable recommendations grouped by risk and ergonomics.",
-        },
-        "imports": [
-            {
-                "id": "paperclip",
-                "type": "capabilityPack",
-                "source": "https://paperclip.ing/",
-                "version": "reference",
-                "targets": ["cursor", "claude"],
-                "note": "Track external orchestrator ideas or future adapters here.",
-                "trust": {"level": "review-required", "reviewedByHuman": False},
-                "provides": {
-                    "notes": ["Review governance and ticketing patterns before adopting."],
-                    "skills": [],
-                },
-            },
-            {
-                "id": "example-mcp",
-                "type": "mcp",
-                "source": "npm:example-mcp-server",
-                "version": "latest",
-                "targets": ["cursor"],
-                "note": "Replace with a real MCP server when needed.",
-                "trust": {"level": "review-required", "reviewedByHuman": False},
-                "transport": {
-                    "type": "stdio",
-                    "command": "npx",
-                    "args": ["-y", "example-mcp-server"],
-                    "env": {},
-                },
-                "provides": {"notes": ["Review what tools the MCP exposes."], "skills": []},
-            },
-        ],
-        "targetOverrides": {
-            "cursor": {
-                "alwaysApplyRules": ["core", "orchestrator-policy", "workflow", "evaluation"]
-            },
-            "claude": {
-                "notes": ["Keep `.claude/settings.local.json` uncommitted."],
-            },
         },
         "claude": {
             "settingsLocalExample": DEFAULT_CLAUDE_LOCAL,
@@ -3692,37 +3697,6 @@ def domain_preset_overrides(domain: str) -> dict:
                     ],
                     "outputs": ["UI change plan", "Verification checklist"],
                 }
-            ],
-            "imports": [
-                {
-                    "id": "ui-ux-pro-max",
-                    "type": "skillPack",
-                    "source": "https://ui-ux-pro-max-skill.nextlevelbuilder.io/",
-                    "version": "reference",
-                    "targets": ["cursor", "claude"],
-                    "note": "Optional design-oriented capability pack for UI work.",
-                    "trust": {"level": "review-required", "reviewedByHuman": False},
-                    "provides": {
-                        "notes": ["Review the pack before relying on it in production."],
-                        "skills": [],
-                    },
-                },
-                {
-                    "id": "browser-mcp",
-                    "type": "mcp",
-                    "source": "npm:browser-mcp-server",
-                    "version": "latest",
-                    "targets": ["cursor"],
-                    "note": "Placeholder browser-oriented MCP for UI validation.",
-                    "trust": {"level": "review-required", "reviewedByHuman": False},
-                    "transport": {
-                        "type": "stdio",
-                        "command": "npx",
-                        "args": ["-y", "browser-mcp-server"],
-                        "env": {},
-                    },
-                    "provides": {"notes": ["Review browser automation scope before enabling."], "skills": []},
-                },
             ],
         }
     if domain == "data-science":
@@ -3991,15 +3965,16 @@ def default_blueprint(repo_name: str, preset: str = DEFAULT_PRESET, spec: dict |
         "",
         json_block(SPEC_MARKERS, spec),
         "",
-        "## Workflow",
+        "## Render Loop",
         "",
-        "1. Review or edit the spec block above only if you want to override the defaults.",
+        "1. Fill in Priority 1 and 2 first. Keep the default `find-skills` import only as an optional template until the workflow feels real.",
         "2. Run `init-orch --all` for the first render, or `init-orch --cursor` / `init-orch --claude` if you only want one target.",
         "3. Run `init-orch --suggest` when you want a repo-aware proposal for summary, mission, success criteria, and verification.",
-        "4. Re-run the render command after any spec change.",
-        "5. Run `init-orch --refine` after the first render when you want to tailor the setup to the actual repo.",
-        "6. Run `init-orch --review` whenever you want deliberate setup recommendations without rewriting files.",
-        "7. Review the generated recommendations block and decide which changes belong in the spec.",
+        "4. Copy or edit the default `find-skills` import when you want to add other skills, or replace it with MCP declarations when you need external tools.",
+        "5. Re-run the render command after any spec change.",
+        "6. Run `init-orch --refine` after the first render when you want to tailor the setup to the actual repo.",
+        "7. Run `init-orch --review` whenever you want deliberate setup recommendations without rewriting files.",
+        "8. Review the generated recommendations block and decide which changes belong in the spec.",
         "",
         "The generator will only rewrite the metadata and recommendations blocks below.",
         "",

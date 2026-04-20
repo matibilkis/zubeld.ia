@@ -246,6 +246,26 @@ class SuggestRefactorTests(unittest.TestCase):
         self.assertNotIn("## Role Responsibilities", rendered)
         self.assertNotIn("## Imported Capabilities", rendered)
 
+    def test_default_presets_start_with_find_skills_import_template(self) -> None:
+        engineering = init_orch.build_preset_spec("demo", "engineering-generic")
+        web_app = init_orch.build_preset_spec("demo", "engineering-web-app")
+
+        for spec in (engineering, web_app):
+            self.assertEqual(len(spec["imports"]), 1)
+            self.assertEqual(spec["imports"][0]["id"], "find-skills")
+            self.assertEqual(spec["imports"][0]["type"], "skillPack")
+            self.assertEqual(spec["imports"][0]["source"], "https://skills.sh/vercel-labs/skills/find-skills")
+
+    def test_default_blueprint_emphasizes_priority_order_and_render_loop(self) -> None:
+        blueprint = init_orch.default_blueprint("demo", "engineering-generic")
+
+        self.assertIn("The top-level JSON keys below follow the same order", blueprint)
+        self.assertIn("The default `find-skills` entry is an optional template you can keep, copy, or delete.", blueprint)
+        self.assertIn("## Render Loop", blueprint)
+        self.assertNotIn("## Workflow\n\n1. Review or edit the spec block above only if you want to override the defaults.", blueprint)
+        self.assertIn('"id": "find-skills"', blueprint)
+        self.assertIn("Optional template import for external skills.", blueprint)
+
     def test_render_targets_dry_run_does_not_write_files(self) -> None:
         repo_dir = self.make_repo("dry-run-demo")
         output = io.StringIO()
@@ -283,7 +303,8 @@ class SuggestRefactorTests(unittest.TestCase):
 
         report = init_orch.review_blueprint(repo_dir, repo_dir / "init-orch.md")
 
-        self.assertIn("unchanged recommendation(s) suppressed", report)
+        self.assertNotIn("unchanged recommendation(s) suppressed", report)
+        self.assertIn("No major recommendations right now.", report)
         self.assertNotIn("1. Review imported capability `paperclip`", report)
         self.assertIn("Parity:", report)
         self.assertIn("target-specific drift:", report)

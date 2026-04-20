@@ -246,11 +246,27 @@ If the project is still fuzzy, do not try to perfect the whole spec.
 
 1. Start with project shape and guardrails: `preset`, mission, success criteria, `responseStyle`, targets, stop conditions, verification, and `toolPolicy`.
 2. Add roles, handoffs, and high-level rules.
-3. Add imports, MCPs, and target-specific overrides once the core workflow is clear.
-4. Add skills after that.
+3. Add imports, MCPs, and target-specific overrides once the core workflow is clear. The default `find-skills` import is an optional template you can keep, copy, or delete.
+4. Add skills after that, once repeated work patterns are real.
 5. Tune evaluation and review refinements last.
 
 For a first useful pass, steps 1 and 2 are enough.
+
+## Imports, MCPs, And Skills
+
+Keep this part of the blueprint minimal until you actually need it.
+
+- `mcp` imports are the only ones that currently drive MCP wiring. They show up in manifests and can generate Cursor MCP config when the transport is defined.
+- `skillPack` and `capabilityPack` imports are declarative today. `init-orch` records them in manifests and recommendations, but it does not fetch, install, or resolve them for you.
+- Top-level `skills` and any `provides.skills` declared by imports both feed the generated skill files.
+- The default `find-skills` import exists to show the pattern. Copy it to add other external skills, then change `id`, `source`, notes, and any provided skill details.
+
+Practical roadmap:
+
+1. First render: keep the default `find-skills` import only as a template, or delete it if you do not want any external skill example in the repo yet.
+2. First useful upgrade: copy that entry to add another external skill, or add an `mcp` import when you truly need an external tool surface.
+3. Later cleanup: keep only the imports and reusable `skills` that proved useful in real work.
+4. Future add-on, not current behavior: automatic import resolution or installation.
 
 ## Installation
 

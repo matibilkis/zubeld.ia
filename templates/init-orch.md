@@ -21,10 +21,12 @@ Edit the JSON block below freely to describe the orchestration structure you wan
 ## What To Fill In First
 
 If your project idea is still fuzzy, make the Priority 1 and 2 decisions first. You can leave later priorities rough or incomplete until after the first render.
+The top-level JSON keys below follow the same order, so you can edit from top to bottom without hunting around.
 
 ### Priority 1: Project shape and guardrails
 
 Start here. Decide:
+A solid first render usually only needs this priority plus Priority 2.
 - `preset`, `workflowPreset`, `domainPreset`
 - `project.summary`, `project.mission`, `project.successCriteria`
 - `targets`
@@ -41,6 +43,7 @@ This mainly influences:
 ### Priority 2: Roles and collaboration shape
 
 Add next. Decide:
+Add the smallest collaboration loop that makes reviews and handoffs obvious.
 - `roles`
 - `handoffs`
 - `rules`
@@ -53,6 +56,7 @@ This mainly influences:
 ### Priority 3: Capabilities and integrations
 
 Add once the core workflow is clear. Decide:
+Keep this light on the first render. The default `find-skills` entry is an optional template you can keep, copy, or delete.
 - `imports`
 - MCP declarations
 - `targetOverrides`
@@ -65,6 +69,7 @@ This mainly influences:
 ### Priority 4: Reusable accelerators
 
 Optional for now. Decide:
+Add reusable skills only after you notice repeated patterns worth codifying.
 - `skills`
 
 This mainly influences:
@@ -74,6 +79,7 @@ This mainly influences:
 ### Priority 5: Meta-iteration
 
 Tune later. Decide:
+Use this after real work has happened and you have evidence that the setup should change.
 - `evaluation`
 - evaluator-role refinements
 - retrospective cadence and recommendation hygiene
@@ -129,6 +135,63 @@ This mainly influences:
     "cursor",
     "claude"
   ],
+  "verification": [
+    {
+      "changeType": "code",
+      "required": [
+        "Run focused tests or explain why none were available."
+      ]
+    },
+    {
+      "changeType": "config",
+      "required": [
+        "Review generated files before enabling broad permissions."
+      ]
+    }
+  ],
+  "toolPolicy": {
+    "allow": [
+      "Read(*)",
+      "Glob(*)",
+      "Grep(*)",
+      "WebFetch",
+      "WebSearch"
+    ],
+    "risky": [
+      "Edit(*)",
+      "Write(*)",
+      "Delete(*)",
+      "Bash(*)"
+    ],
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(sudo *)",
+      "Edit(.env*)"
+    ],
+    "requiresApproval": [
+      "Delete(*)",
+      "Bash(*)",
+      "Edit(.env*)"
+    ]
+  },
+  "workflow": {
+    "planningTrigger": "Plan first for non-trivial or cross-cutting implementation work.",
+    "implementationFocus": "Prefer the smallest production-ready change that solves the real problem.",
+    "reviewChecklist": [
+      "Confirm behavior changed as intended.",
+      "Check for missing verification.",
+      "Confirm the design still looks maintainable in six months.",
+      "Check for missing tests, rollback concerns, or obvious operational gaps."
+    ],
+    "escalation": [
+      "Escalate when requirements are ambiguous.",
+      "Escalate before destructive actions or production-impacting changes."
+    ],
+    "stopConditions": [
+      "Stop when missing credentials or required access blocks progress.",
+      "Stop when the requested action would be unsafe without human review."
+    ]
+  },
   "roles": [
     {
       "id": "planner",
@@ -176,31 +239,6 @@ This mainly influences:
       ]
     }
   ],
-  "rules": [
-    "Ask before destructive or irreversible actions.",
-    "Prefer focused verification after changes.",
-    "Do not edit secrets or production credentials.",
-    "Prefer maintainable solutions over clever shortcuts.",
-    "Keep diffs reviewable and verification relevant to the change."
-  ],
-  "workflow": {
-    "planningTrigger": "Plan first for non-trivial or cross-cutting implementation work.",
-    "implementationFocus": "Prefer the smallest production-ready change that solves the real problem.",
-    "reviewChecklist": [
-      "Confirm behavior changed as intended.",
-      "Check for missing verification.",
-      "Confirm the design still looks maintainable in six months.",
-      "Check for missing tests, rollback concerns, or obvious operational gaps."
-    ],
-    "escalation": [
-      "Escalate when requirements are ambiguous.",
-      "Escalate before destructive actions or production-impacting changes."
-    ],
-    "stopConditions": [
-      "Stop when missing credentials or required access blocks progress.",
-      "Stop when the requested action would be unsafe without human review."
-    ]
-  },
   "handoffs": [
     {
       "from": "planner",
@@ -221,124 +259,48 @@ This mainly influences:
       ]
     }
   ],
-  "verification": [
-    {
-      "changeType": "code",
-      "required": [
-        "Run focused tests or explain why none were available."
-      ]
-    },
-    {
-      "changeType": "config",
-      "required": [
-        "Review generated files before enabling broad permissions."
-      ]
-    }
+  "rules": [
+    "Ask before destructive or irreversible actions.",
+    "Prefer focused verification after changes.",
+    "Do not edit secrets or production credentials.",
+    "Prefer maintainable solutions over clever shortcuts.",
+    "Keep diffs reviewable and verification relevant to the change."
   ],
-  "skills": [
-    {
-      "id": "change-plan",
-      "when": "Use for multi-step work that benefits from a short implementation plan.",
-      "steps": [
-        "Summarize the goal and important constraints.",
-        "Outline the smallest safe change.",
-        "List the checks needed before finishing."
-      ],
-      "outputs": [
-        "Plan",
-        "Verification checklist"
-      ]
-    }
-  ],
-  "toolPolicy": {
-    "allow": [
-      "Read(*)",
-      "Glob(*)",
-      "Grep(*)",
-      "WebFetch",
-      "WebSearch"
-    ],
-    "risky": [
-      "Edit(*)",
-      "Write(*)",
-      "Delete(*)",
-      "Bash(*)"
-    ],
-    "deny": [
-      "Bash(rm -rf *)",
-      "Bash(sudo *)",
-      "Edit(.env*)"
-    ],
-    "requiresApproval": [
-      "Delete(*)",
-      "Bash(*)",
-      "Edit(.env*)"
-    ]
-  },
-  "evaluation": {
-    "cadence": "Review after meaningful project changes or when the workflow feels brittle.",
-    "signals": [
-      "Humans repeatedly have to restate context.",
-      "Agents stall because permissions are too weak or too broad.",
-      "Reviews catch recurring classes of mistakes."
-    ],
-    "goals": [
-      "Reduce human babysitting.",
-      "Improve safety without making normal work painful.",
-      "Reduce human babysitting without weakening production discipline.",
-      "Keep the workflow maintainable as the repository grows."
-    ],
-    "recommendationFormat": "Short actionable recommendations grouped by risk and ergonomics."
-  },
   "imports": [
     {
-      "id": "paperclip",
-      "type": "capabilityPack",
-      "source": "https://paperclip.ing/",
+      "id": "find-skills",
+      "type": "skillPack",
+      "source": "https://skills.sh/vercel-labs/skills/find-skills",
       "version": "reference",
       "targets": [
         "cursor",
         "claude"
       ],
-      "note": "Track external orchestrator ideas or future adapters here.",
+      "note": "Optional template import for external skills. Copy this entry for other skills or delete it if unused.",
       "trust": {
-        "level": "review-required",
-        "reviewedByHuman": false
+        "level": "reference",
+        "reviewedByHuman": true
       },
       "provides": {
         "notes": [
-          "Review governance and ticketing patterns before adopting."
+          "Template import for skills.sh-compatible skills. Duplicate it and change `id`, `source`, and provided skill details for other imports."
         ],
-        "skills": []
-      }
-    },
-    {
-      "id": "example-mcp",
-      "type": "mcp",
-      "source": "npm:example-mcp-server",
-      "version": "latest",
-      "targets": [
-        "cursor"
-      ],
-      "note": "Replace with a real MCP server when needed.",
-      "trust": {
-        "level": "review-required",
-        "reviewedByHuman": false
-      },
-      "transport": {
-        "type": "stdio",
-        "command": "npx",
-        "args": [
-          "-y",
-          "example-mcp-server"
-        ],
-        "env": {}
-      },
-      "provides": {
-        "notes": [
-          "Review what tools the MCP exposes."
-        ],
-        "skills": []
+        "skills": [
+          {
+            "id": "find-skills",
+            "when": "Use when you need to discover a specialized external skill or workflow.",
+            "steps": [
+              "Identify the domain and the exact task you need help with.",
+              "Search for a relevant skill and verify source quality before adoption.",
+              "Record the chosen skill back in `init-orch.md` before relying on it."
+            ],
+            "outputs": [
+              "Skill candidates",
+              "Adoption note",
+              "Follow-up import update"
+            ]
+          }
+        ]
       }
     }
   ],
@@ -356,6 +318,36 @@ This mainly influences:
         "Keep `.claude/settings.local.json` uncommitted."
       ]
     }
+  },
+  "skills": [
+    {
+      "id": "change-plan",
+      "when": "Use for multi-step work that benefits from a short implementation plan.",
+      "steps": [
+        "Summarize the goal and important constraints.",
+        "Outline the smallest safe change.",
+        "List the checks needed before finishing."
+      ],
+      "outputs": [
+        "Plan",
+        "Verification checklist"
+      ]
+    }
+  ],
+  "evaluation": {
+    "cadence": "Review after meaningful project changes or when the workflow feels brittle.",
+    "signals": [
+      "Humans repeatedly have to restate context.",
+      "Agents stall because permissions are too weak or too broad.",
+      "Reviews catch recurring classes of mistakes."
+    ],
+    "goals": [
+      "Reduce human babysitting.",
+      "Improve safety without making normal work painful.",
+      "Reduce human babysitting without weakening production discipline.",
+      "Keep the workflow maintainable as the repository grows."
+    ],
+    "recommendationFormat": "Short actionable recommendations grouped by risk and ergonomics."
   },
   "claude": {
     "settingsLocalExample": {
@@ -378,12 +370,14 @@ This mainly influences:
 ```
 <!-- init-orch:spec:end -->
 
-## Workflow
+## Render Loop
 
-1. Fill in the spec block above.
+1. Fill in Priority 1 and 2 first. Keep the default `find-skills` import only as an optional template until the workflow feels real.
 2. Run `init-orch --cursor`, `init-orch --claude`, or `init-orch --all`.
-3. Re-run the command whenever you change the orchestration design.
-4. Review the generated recommendations block and decide which changes belong in the spec.
+3. Run `init-orch --suggest` when you want a repo-aware proposal for summary, mission, success criteria, and verification.
+4. Copy or edit the default `find-skills` import when you want to add other skills, or replace it with MCP declarations when you need external tools.
+5. Re-run the command whenever you change the orchestration design.
+6. Review the generated recommendations block and decide which changes belong in the spec.
 
 The generator will only rewrite the metadata and recommendations blocks below.
 
