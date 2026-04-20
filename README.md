@@ -323,12 +323,12 @@ Compared with larger orchestration platforms:
 
 This is a rough comparison set, not a leaderboard.
 
-### [`rulesync`](https://rulesync.dyoshikawa.com/)
+### [rulesync](https://rulesync.dyoshikawa.com/)
 
 - best when you mainly want to generate or sync rule/config files
 - `init-orch` differs by centering one editable blueprint plus a longer loop: bootstrap, suggest, compile, refine, and review
 
-### [`agentmd`](https://agentmd.online/)
+### [agentmd](https://agentmd.online/)
 
 - best when a lightweight agent markdown setup is enough
 - `init-orch` differs by treating `init-orch.md` as the source of truth and rendering multiple outputs from it instead of stopping at one hand-maintained guide
