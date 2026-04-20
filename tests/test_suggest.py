@@ -110,6 +110,39 @@ class SuggestRefactorTests(unittest.TestCase):
         )
         self.assertIn("python3 -m py_compile ./init-orch", repo_brief["codeChecks"])
 
+    def test_dotfiles_do_not_count_as_python_entrypoints(self) -> None:
+        repo_dir = self.make_repo("qmon_sindy")
+        (repo_dir / ".gitignore").write_text("# Python\n__pycache__/\n", encoding="utf-8")
+
+        self.assertFalse(init_orch.has_python_shebang(repo_dir / ".gitignore"))
+        self.assertEqual(init_orch.detect_python_entrypoint(repo_dir), "")
+
+    def test_python_repo_with_tests_and_pytest_docs_prefers_pytest_check(self) -> None:
+        repo_dir = self.make_repo("qmon_sindy")
+        (repo_dir / "README.md").write_text(
+            "# qmon_sindy\n\nThis repo uses pytest for the test suite.\n",
+            encoding="utf-8",
+        )
+        (repo_dir / "tests").mkdir()
+        (repo_dir / "setup.py").write_text("from setuptools import setup\n", encoding="utf-8")
+        (repo_dir / ".gitignore").write_text("# Python\n__pycache__/\n", encoding="utf-8")
+
+        evidence = self.collect(repo_dir)
+        repo_brief = evidence["repoBrief"]
+        verification, _confidence = init_orch.build_verification_suggestions(repo_brief, evidence["spec"])
+
+        self.assertIn("pytest", repo_brief["codeChecks"])
+        self.assertNotIn("python3 -m py_compile ./.gitignore", repo_brief["codeChecks"])
+        self.assertTrue(any("Run `pytest`" in requirement for item in verification for requirement in item["required"]))
+
+    def test_rendered_agents_markdown_keeps_clean_bullets(self) -> None:
+        spec = init_orch.normalize_spec(init_orch.build_preset_spec("qmon_sindy", "engineering-generic"))
+        rendered = init_orch.render_agents_file(spec, {"items": [], "summary": "", "version": 1})
+
+        self.assertIn("\n- Keep guidance easy for humans to update.\n", rendered)
+        self.assertIn("\n- `implementer`: Make focused code changes and verify the result.\n", rendered)
+        self.assertNotIn("\n        - `implementer`", rendered)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1139,13 +1139,30 @@ def has_python_shebang(path: Path) -> bool:
         return False
     text = read_text_limited(path, char_limit=200)
     first_line = text.splitlines()[0] if text.splitlines() else ""
-    return "python" in first_line.lower()
+    return first_line.startswith("#!") and "python" in first_line.lower()
+
+
+def looks_like_python_entrypoint(path: Path) -> bool:
+    if not path.exists() or not path.is_file():
+        return False
+    name = path.name
+    if name.startswith("."):
+        return False
+    if has_python_shebang(path):
+        return True
+    return name in {"main.py", "app.py", "manage.py"} or str(path).endswith("/src/main.py")
 
 
 def python_entrypoint_candidates(target_dir: Path) -> list[Path]:
     candidates = [target_dir / target_dir.name]
     candidates.extend(target_dir / relative_path for relative_path in SUGGEST_SOURCE_CANDIDATES)
-    candidates.extend(sorted(path for path in target_dir.iterdir() if path.is_file() and path.suffix == ""))
+    candidates.extend(
+        sorted(
+            path
+            for path in target_dir.iterdir()
+            if path.is_file() and path.suffix == "" and not path.name.startswith(".") and path.stat().st_mode & 0o111
+        )
+    )
     candidates.extend(sorted(target_dir.glob("*.py")))
 
     unique = []
@@ -1178,10 +1195,8 @@ def infer_primary_ecosystem(target_dir: Path) -> tuple[str, str]:
 
 def detect_python_entrypoint(target_dir: Path) -> str:
     for path in python_entrypoint_candidates(target_dir):
-        if has_python_shebang(path):
+        if looks_like_python_entrypoint(path):
             return f"python3 -m py_compile ./{path.relative_to(target_dir)}"
-    for path in sorted(target_dir.glob("*.py")):
-        return f"python3 -m py_compile ./{path.relative_to(target_dir)}"
     return ""
 
 
@@ -1222,8 +1237,12 @@ def build_repo_brief(target_dir: Path, evidence: dict) -> dict:
 
     ecosystem, ecosystem_reason = infer_primary_ecosystem(target_dir)
     package_scripts = parse_package_scripts(target_dir / "package.json")
+    repo_text_blob = "\n".join(item["content"] for item in repo_files).lower()
+    repo_mentions_pytest = "pytest" in repo_text_blob
     code_checks = []
     if ecosystem == "python":
+        if (target_dir / "tests").is_dir() and repo_mentions_pytest:
+            code_checks.append("pytest")
         python_check = detect_python_entrypoint(target_dir)
         if python_check:
             code_checks.append(python_check)
@@ -2030,6 +2049,13 @@ def bullet_lines(items: list[str], fallback: str) -> str:
     if not items:
         return f"- {fallback}"
     return "\n".join(f"- {item}" for item in items)
+
+
+def indented_block(text: str, prefix: str = "        ") -> str:
+    stripped = text.strip()
+    if not stripped:
+        return prefix.rstrip()
+    return textwrap.indent(stripped, prefix)
 
 
 def normalize_role(index: int, raw_role: object) -> dict:
@@ -3144,27 +3170,27 @@ def render_agents_file(spec: dict, recommendations: dict) -> str:
         - Risk posture: {project["riskPosture"]}
         - Maturity: {project["maturity"]}
 
-        {project["summary"]}
+{indented_block(project["summary"])}
 
         ### Mission
 
-        {project["mission"]}
+{indented_block(project["mission"])}
 
         ### Success Criteria
 
-        {success}
+{indented_block(success)}
 
         ## Roles
 
-        {roles}
+{indented_block(roles)}
 
         ## Role Responsibilities
 
-        {responsibilities}
+{indented_block(responsibilities)}
 
         ## Working Rules
 
-        {rules}
+{indented_block(rules)}
 
         ## Workflow
 
@@ -3173,15 +3199,15 @@ def render_agents_file(spec: dict, recommendations: dict) -> str:
 
         ### Review Checklist
 
-        {review}
+{indented_block(review)}
 
         ### Handoffs
 
-        {bullet_lines([f"{handoff['from']} -> {handoff['to']}: {', '.join(handoff['expects'])}" for handoff in spec["handoffs"]], "Add handoffs in `init-orch.md`.")}
+{indented_block(bullet_lines([f"{handoff['from']} -> {handoff['to']}: {', '.join(handoff['expects'])}" for handoff in spec["handoffs"]], "Add handoffs in `init-orch.md`."))}
 
         ### Verification
 
-        {verification}
+{indented_block(verification)}
 
         ## Tool Policy
 
@@ -3192,11 +3218,11 @@ def render_agents_file(spec: dict, recommendations: dict) -> str:
 
         ## Imported Capabilities
 
-        {imports}
+{indented_block(imports)}
 
         ## Skills
 
-        {skills}
+{indented_block(skills)}
 
         ## Evaluation Loop
 
@@ -3205,7 +3231,7 @@ def render_agents_file(spec: dict, recommendations: dict) -> str:
 
         ### Current Recommendations
 
-        {recommendation_titles}
+{indented_block(recommendation_titles)}
         """
     )
 
@@ -3265,19 +3291,19 @@ def render_cursor_core_rule(spec: dict) -> str:
 
         ## Summary
 
-        {spec["project"]["summary"]}
+{indented_block(spec["project"]["summary"])}
 
         ## Mission
 
-        {spec["project"]["mission"]}
+{indented_block(spec["project"]["mission"])}
 
         ## Success Criteria
 
-        {success}
+{indented_block(success)}
 
         ## Roles
 
-        {role_lines}
+{indented_block(role_lines)}
         """
     )
 
@@ -3305,19 +3331,19 @@ def render_cursor_policy_rule(spec: dict) -> str:
 
         ## Allowed Tool Patterns
 
-        {allow}
+{indented_block(allow)}
 
         ## Risky Tool Patterns
 
-        {risky}
+{indented_block(risky)}
 
         ## Requires Approval
 
-        {approval}
+{indented_block(approval)}
 
         ## Denied Tool Patterns
 
-        {deny}
+{indented_block(deny)}
         """
     )
 
@@ -3337,15 +3363,15 @@ def render_cursor_workflow_rule(spec: dict) -> str:
 
         ## Review Checklist
 
-        {bullet_lines(spec["workflow"]["reviewChecklist"], "Add workflow.reviewChecklist in `init-orch.md`.")}
+{indented_block(bullet_lines(spec["workflow"]["reviewChecklist"], "Add workflow.reviewChecklist in `init-orch.md`."))}
 
         ## Escalation
 
-        {bullet_lines(spec["workflow"]["escalation"], "Add escalation guidance in `init-orch.md`.")}
+{indented_block(bullet_lines(spec["workflow"]["escalation"], "Add escalation guidance in `init-orch.md`."))}
 
         ## Stop Conditions
 
-        {bullet_lines(spec["workflow"]["stopConditions"], "Add stop conditions in `init-orch.md`.")}
+{indented_block(bullet_lines(spec["workflow"]["stopConditions"], "Add stop conditions in `init-orch.md`."))}
         """
     )
 
@@ -3369,15 +3395,15 @@ def render_cursor_evaluation_rule(spec: dict, recommendations: dict) -> str:
 
         ## Signals To Watch
 
-        {bullet_lines(spec["evaluation"]["signals"], "Add evaluation.signals in `init-orch.md`.")}
+{indented_block(bullet_lines(spec["evaluation"]["signals"], "Add evaluation.signals in `init-orch.md`."))}
 
         ## Goals
 
-        {bullet_lines(spec["evaluation"]["goals"], "Add evaluation.goals in `init-orch.md`.")}
+{indented_block(bullet_lines(spec["evaluation"]["goals"], "Add evaluation.goals in `init-orch.md`."))}
 
         ## Current Recommendations
 
-        {recommendation_titles}
+{indented_block(recommendation_titles)}
         """
     )
 
@@ -3394,15 +3420,15 @@ def render_cursor_skill(skill: dict) -> str:
 
         ## When To Use
 
-        {skill["when"]}
+{indented_block(skill["when"])}
 
         ## Instructions
 
-        {numbered_lines(skill["steps"], "Add concrete steps in `init-orch.md`.")}
+{indented_block(numbered_lines(skill["steps"], "Add concrete steps in `init-orch.md`."))}
 
         ## Expected Outputs
 
-        {bullet_lines(skill["outputs"], "Add output expectations in `init-orch.md`.")}
+{indented_block(bullet_lines(skill["outputs"], "Add output expectations in `init-orch.md`."))}
         """
     )
 
@@ -3418,15 +3444,15 @@ def render_claude_rule(spec: dict) -> str:
 
         ## Project Summary
 
-        {spec["project"]["summary"]}
+{indented_block(spec["project"]["summary"])}
 
         ## Mission
 
-        {spec["project"]["mission"]}
+{indented_block(spec["project"]["mission"])}
 
         ## Working Rules
 
-        {bullet_lines(spec["rules"], "Add repository rules in `init-orch.md`.")}
+{indented_block(bullet_lines(spec["rules"], "Add repository rules in `init-orch.md`."))}
 
         ## Workflow
 
@@ -3443,23 +3469,23 @@ def render_claude_security_rule(spec: dict) -> str:
 
         Generated from `init-orch.md`.
 
-        {SECURITY_WARNING}
+{indented_block(SECURITY_WARNING)}
 
         ## Allow
 
-        {bullet_lines(spec["toolPolicy"]["allow"], "Add allowed tool patterns in `init-orch.md`.")}
+{indented_block(bullet_lines(spec["toolPolicy"]["allow"], "Add allowed tool patterns in `init-orch.md`."))}
 
         ## Risky
 
-        {bullet_lines(spec["toolPolicy"]["risky"], "Add risky tool patterns in `init-orch.md`.")}
+{indented_block(bullet_lines(spec["toolPolicy"]["risky"], "Add risky tool patterns in `init-orch.md`."))}
 
         ## Requires Approval
 
-        {bullet_lines(spec["toolPolicy"]["requiresApproval"], "Add approval requirements in `init-orch.md`.")}
+{indented_block(bullet_lines(spec["toolPolicy"]["requiresApproval"], "Add approval requirements in `init-orch.md`."))}
 
         ## Deny
 
-        {bullet_lines(spec["toolPolicy"]["deny"], "Add denied tool patterns in `init-orch.md`.")}
+{indented_block(bullet_lines(spec["toolPolicy"]["deny"], "Add denied tool patterns in `init-orch.md`."))}
         """
     )
 
@@ -3473,19 +3499,19 @@ def render_claude_evaluation_rule(spec: dict, recommendations: dict) -> str:
 
         ## Cadence
 
-        {spec["evaluation"]["cadence"]}
+{indented_block(spec["evaluation"]["cadence"])}
 
         ## Signals
 
-        {bullet_lines(spec["evaluation"]["signals"], "Add evaluation signals in `init-orch.md`.")}
+{indented_block(bullet_lines(spec["evaluation"]["signals"], "Add evaluation signals in `init-orch.md`."))}
 
         ## Goals
 
-        {bullet_lines(spec["evaluation"]["goals"], "Add evaluation goals in `init-orch.md`.")}
+{indented_block(bullet_lines(spec["evaluation"]["goals"], "Add evaluation goals in `init-orch.md`."))}
 
         ## Current Recommendations
 
-        {bullet_lines([item["title"] for item in recommendations["items"]], "No current recommendations.")}
+{indented_block(bullet_lines([item["title"] for item in recommendations["items"]], "No current recommendations."))}
         """
     )
 
@@ -3499,19 +3525,19 @@ def render_claude_role(role: dict, spec: dict) -> str:
 
         ## Role
 
-        {role["role"]}
+{indented_block(role["role"])}
 
         ## Responsibilities
 
-        {bullet_lines(role["responsibilities"], "Add responsibilities in `init-orch.md`.")}
+{indented_block(bullet_lines(role["responsibilities"], "Add responsibilities in `init-orch.md`."))}
 
         ## Deliverables
 
-        {bullet_lines(role["deliverables"], "Add deliverables in `init-orch.md`.")}
+{indented_block(bullet_lines(role["deliverables"], "Add deliverables in `init-orch.md`."))}
 
         ## Project Context
 
-        {spec["project"]["mission"]}
+{indented_block(spec["project"]["mission"])}
         """
     )
 
@@ -3525,15 +3551,15 @@ def render_claude_skill(skill: dict) -> str:
 
         ## When To Use
 
-        {skill["when"]}
+{indented_block(skill["when"])}
 
         ## Steps
 
-        {numbered_lines(skill["steps"], "Add concrete steps in `init-orch.md`.")}
+{indented_block(numbered_lines(skill["steps"], "Add concrete steps in `init-orch.md`."))}
 
         ## Expected Outputs
 
-        {bullet_lines(skill["outputs"], "Add output expectations in `init-orch.md`.")}
+{indented_block(bullet_lines(skill["outputs"], "Add output expectations in `init-orch.md`."))}
         """
     )
 
