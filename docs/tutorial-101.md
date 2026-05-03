@@ -63,7 +63,7 @@ Good defaults when you are unsure:
 - `engineering-web-app` for product/UI repos
 - `poc-data-science` for experiment-heavy notebook work
 
-Think of the preset as a first draft, not a lock-in. Pick the closest one, then edit `init-orch.md` to change mission, `responseStyle`, verification, roles, imports, or anything else.
+Think of the preset as a first draft, not a lock-in. Pick the closest one, then edit `init-orch.md` to change mission, `responseStyle`, verification, imports, or anything else.
 
 ## Optional Step 2: Suggest
 

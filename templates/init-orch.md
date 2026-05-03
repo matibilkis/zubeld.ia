@@ -40,17 +40,15 @@ This mainly influences:
 - Claude settings and approval boundaries
 - recommendation quality
 
-### Priority 2: Roles and collaboration shape
+### Priority 2: Collaboration shape
 
 Add next. Decide:
 Add the smallest collaboration loop that makes reviews and handoffs obvious.
-- `roles`
 - `handoffs`
 - `rules`
 
 This mainly influences:
 - `AGENTS.md`
-- Claude agent files
 - clear ownership and review flow
 
 ### Priority 3: Capabilities and integrations
@@ -81,7 +79,6 @@ This mainly influences:
 Tune later. Decide:
 Use this after real work has happened and you have evidence that the setup should change.
 - `evaluation`
-- evaluator-role refinements
 - retrospective cadence and recommendation hygiene
 
 This mainly influences:
@@ -192,57 +189,10 @@ This mainly influences:
       "Stop when the requested action would be unsafe without human review."
     ]
   },
-  "roles": [
-    {
-      "id": "planner",
-      "role": "Plan non-trivial changes before implementation.",
-      "responsibilities": [
-        "Clarify the goal and constraints.",
-        "Propose the smallest safe path forward."
-      ],
-      "deliverables": [
-        "Short implementation plan"
-      ]
-    },
-    {
-      "id": "implementer",
-      "role": "Make focused code changes and verify the result.",
-      "responsibilities": [
-        "Implement the agreed change.",
-        "Run the most relevant checks."
-      ],
-      "deliverables": [
-        "Code changes",
-        "Verification notes"
-      ]
-    },
-    {
-      "id": "reviewer",
-      "role": "Review diffs for bugs, regressions, and missing checks.",
-      "responsibilities": [
-        "Look for correctness and safety issues.",
-        "Call out missing tests or risky assumptions."
-      ],
-      "deliverables": [
-        "Review findings or approval"
-      ]
-    },
-    {
-      "id": "evaluator",
-      "role": "Assess how the human-agent workflow is performing over time.",
-      "responsibilities": [
-        "Identify friction in prompts, permissions, and handoffs.",
-        "Recommend changes to the orchestration design."
-      ],
-      "deliverables": [
-        "Recommendations for init-orch.md"
-      ]
-    }
-  ],
   "handoffs": [
     {
-      "from": "planner",
-      "to": "implementer",
+      "from": "planning",
+      "to": "implementation",
       "expects": [
         "Goal summary",
         "Constraints",
@@ -250,8 +200,8 @@ This mainly influences:
       ]
     },
     {
-      "from": "implementer",
-      "to": "reviewer",
+      "from": "implementation",
+      "to": "review",
       "expects": [
         "Diff summary",
         "Verification notes",

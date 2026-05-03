@@ -43,7 +43,7 @@ DOMAIN_PRESET_DESCRIPTIONS = {
 }
 TARGET_DESCRIPTIONS = {
     "cursor": "Render Cursor rules, skills, imports, and MCP configuration.",
-    "claude": "Render Claude settings, agents, rules, skills, and imports.",
+    "claude": "Render Claude settings, rules, skills, and imports.",
 }
 RISK_POSTURE_DESCRIPTIONS = {
     "low": "Lighter guardrails for trusted, lower-risk repositories.",
@@ -147,16 +147,14 @@ PRIORITY_GUIDANCE = [
     {
         "level": "Priority 2",
         "action": "Add next",
-        "title": "Roles and collaboration shape",
+        "title": "Collaboration shape",
         "note": "Add the smallest collaboration loop that makes reviews and handoffs obvious.",
         "fields": [
-            "`roles`",
             "`handoffs`",
             "`rules`",
         ],
         "outputs": [
             "`AGENTS.md`",
-            "Claude agent files",
             "clear ownership and review flow",
         ],
     },
@@ -196,7 +194,6 @@ PRIORITY_GUIDANCE = [
         "note": "Use this after real work has happened and you have evidence that the setup should change.",
         "fields": [
             "`evaluation`",
-            "evaluator-role refinements",
             "retrospective cadence and recommendation hygiene",
         ],
         "outputs": [
@@ -253,6 +250,8 @@ DEFAULT_TOOL_POLICY = {
 }
 
 DEFAULT_CLAUDE_LOCAL = {
+    "disable_adaptive_thinking": True,
+    "effort": "max",
     "permissions": {
         "allow": [
             "Bash(*)",
@@ -864,11 +863,7 @@ def build_render_ownership(target_dir: Path, spec: dict, selected_targets: list[
                 imports_dir / "manifest.json",
             ]
         )
-        if spec["roles"]:
-            for role in spec["roles"]:
-                managed_files.append(agents_dir / f"{sanitize_filename(role['id'], 'role')}.md")
-        else:
-            managed_files.append(agents_dir / ".gitkeep")
+        managed_files.append(agents_dir / ".gitkeep")
         if spec["skills"]:
             for skill in spec["skills"]:
                 managed_files.append(skills_dir / f"{sanitize_filename(skill['id'], 'skill')}.md")
@@ -2548,17 +2543,6 @@ def collect_review_context(
             }
         )
 
-    if len(spec["roles"]) < 3:
-        items.append(
-            {
-                "category": "workflow",
-                "priority": 60,
-                "title": "Add a clearer collaboration shape",
-                "recommendation": "Define at least planner, implementer, and reviewer or evaluator roles.",
-                "rationale": "A small but explicit role model makes the generated guidance more actionable.",
-            }
-        )
-
     suggested_check = repo_hints["suggestedCheck"].lower()
     if repo_hints["suggestedCheck"] and suggested_check not in verification_summary:
         check_text = repo_hints["suggestedCheck"]
@@ -2689,7 +2673,6 @@ def build_parity_snapshot(target_dir: Path, spec: dict, metadata: dict) -> dict:
             "workflow",
             "responseStyle",
             "verification",
-            "roles",
             "skills",
             "imports",
             "toolPolicy",
@@ -2715,7 +2698,7 @@ def format_parity_report(target_dir: Path, spec: dict, metadata: dict, snapshot:
         "- Cursor-only files: " + summarize_paths(snapshot["cursorOnlyFiles"]) if snapshot["cursorOnlyFiles"] else "- Cursor-only files: none",
         "- Claude-only files: " + summarize_paths(snapshot["claudeOnlyFiles"]) if snapshot["claudeOnlyFiles"] else "- Claude-only files: none",
         "- Cursor anchor files: `.cursor/rules/core.mdc`, `.cursor/imports/manifest.json`, and optional `.cursor/mcp.json`.",
-        "- Claude anchor files: `.claude/settings.json`, `.claude/rules/orchestration.md`, role/skill files, and a `.gitignore` entry for `.claude/settings.local.json`.",
+        "- Claude anchor files: `.claude/settings.json`, `.claude/rules/orchestration.md`, skill files, and a `.gitignore` entry for `.claude/settings.local.json`.",
         "",
         "Target-specific overrides:",
         "- Cursor overrides: " + (", ".join(snapshot["cursorOverrideKeys"]) if snapshot["cursorOverrideKeys"] else "none"),
@@ -2994,29 +2977,6 @@ def response_style_profile(profile: str) -> dict:
     return deepcopy(profiles[profile])
 
 
-def normalize_role(index: int, raw_role: object) -> dict:
-    if not isinstance(raw_role, dict):
-        raise ValueError(f"`roles[{index}]` must be a JSON object.")
-    role_id = normalize_string(raw_role.get("id"), "")
-    description = normalize_string(raw_role.get("role") or raw_role.get("description"), "")
-    if not role_id or not description:
-        raise ValueError(f"`roles[{index}]` must include `id` and `role`.")
-    responsibilities = require_string_list(
-        raw_role.get("responsibilities", []),
-        f"roles[{index}].responsibilities",
-    )
-    deliverables = require_string_list(
-        raw_role.get("deliverables", []),
-        f"roles[{index}].deliverables",
-    )
-    return {
-        "id": role_id,
-        "role": description,
-        "responsibilities": responsibilities,
-        "deliverables": deliverables,
-    }
-
-
 def normalize_skill(index: int, raw_skill: object, source: str = "local") -> dict:
     if not isinstance(raw_skill, dict):
         raise ValueError(f"`skills[{index}]` must be a JSON object.")
@@ -3123,11 +3083,6 @@ def normalize_spec(raw_spec: object) -> dict:
     invalid_targets = [target for target in targets if target not in VALID_TARGETS]
     if invalid_targets:
         raise ValueError("Invalid targets in `targets`: " + ", ".join(sorted(invalid_targets)))
-
-    roles_raw = spec.get("roles", spec.get("agents", []))
-    if not isinstance(roles_raw, list):
-        raise ValueError("`roles` must be a JSON array.")
-    roles = [normalize_role(index, role) for index, role in enumerate(roles_raw, start=1)]
 
     rules = require_string_list(spec.get("rules", []), "rules")
 
@@ -3302,7 +3257,6 @@ def normalize_spec(raw_spec: object) -> dict:
             "maturity": maturity,
         },
         "targets": targets,
-        "roles": roles,
         "rules": rules,
         "workflow": workflow_normalized,
         "handoffs": handoffs,
@@ -3370,44 +3324,6 @@ def base_blueprint_spec(repo_name: str) -> dict:
                 "Stop when the requested action would be unsafe without human review.",
             ],
         },
-        "roles": [
-            {
-                "id": "planner",
-                "role": "Plan non-trivial changes before implementation.",
-                "responsibilities": [
-                    "Clarify the goal and constraints.",
-                    "Propose the smallest safe path forward.",
-                ],
-                "deliverables": ["Short implementation plan"],
-            },
-            {
-                "id": "implementer",
-                "role": "Make focused code changes and verify the result.",
-                "responsibilities": [
-                    "Implement the agreed change.",
-                    "Run the most relevant checks.",
-                ],
-                "deliverables": ["Code changes", "Verification notes"],
-            },
-            {
-                "id": "reviewer",
-                "role": "Review diffs for bugs, regressions, and missing checks.",
-                "responsibilities": [
-                    "Look for correctness and safety issues.",
-                    "Call out missing tests or risky assumptions.",
-                ],
-                "deliverables": ["Review findings or approval"],
-            },
-            {
-                "id": "evaluator",
-                "role": "Assess how the human-agent workflow is performing over time.",
-                "responsibilities": [
-                    "Identify friction in prompts, permissions, and handoffs.",
-                    "Recommend changes to the orchestration design.",
-                ],
-                "deliverables": ["Recommendations for init-orch.md"],
-            },
-        ],
         "rules": [
             "Ask before destructive or irreversible actions.",
             "Prefer focused verification after changes.",
@@ -3415,13 +3331,13 @@ def base_blueprint_spec(repo_name: str) -> dict:
         ],
         "handoffs": [
             {
-                "from": "planner",
-                "to": "implementer",
+                "from": "planning",
+                "to": "implementation",
                 "expects": ["Goal summary", "Constraints", "Proposed plan"],
             },
             {
-                "from": "implementer",
-                "to": "reviewer",
+                "from": "implementation",
+                "to": "review",
                 "expects": ["Diff summary", "Verification notes", "Known risks"],
             },
         ],
@@ -4044,17 +3960,6 @@ def generate_recommendations(spec: dict) -> dict:
             }
         )
 
-    if not any(role["id"] == "evaluator" for role in spec["roles"]):
-        items.append(
-            {
-                "category": "iteration",
-                "priority": 58,
-                "title": "Add an evaluator role",
-                "recommendation": "Introduce a role that reviews overall human-agent collaboration and recommends improvements.",
-                "rationale": "A dedicated evaluator helps the orchestration evolve as the project changes.",
-            }
-        )
-
     for item in spec["imports"]:
         if item["trust"]["level"] == "review-required" or not item["trust"]["reviewedByHuman"]:
             items.append(
@@ -4092,9 +3997,6 @@ def render_agents_file(spec: dict, recommendations: dict) -> str:
     project = spec["project"]
     response_style = spec["responseStyle"]
     targets = ", ".join(spec["targets"]) if spec["targets"] else "none"
-    roles = "\n".join(
-        f"- `{role['id']}`: {role['role']}" for role in spec["roles"]
-    ) or "- Add at least one role in `init-orch.md`."
     skills = "\n".join(
         f"- `{skill['id']}`: {skill['when']} ({skill['source']})" for skill in spec["skills"]
     ) or "- Add a skill entry in `init-orch.md` when you want reusable workflows."
@@ -4136,10 +4038,6 @@ def render_agents_file(spec: dict, recommendations: dict) -> str:
         ### Success Criteria
 
 {indented_block(success)}
-
-        ## Roles
-
-{indented_block(roles)}
 
         ## Working Rules
 
@@ -4191,7 +4089,6 @@ def render_policy_file(spec: dict) -> str:
         "description": "Generated from init-orch.md. Do not edit directly.",
         "project": spec["project"],
         "targets": spec["targets"],
-        "roles": spec["roles"],
         "rules": spec["rules"],
         "workflow": spec["workflow"],
         "handoffs": spec["handoffs"],
@@ -4220,9 +4117,6 @@ def render_policy_file(spec: dict) -> str:
 
 def render_cursor_core_rule(spec: dict) -> str:
     response_style = spec["responseStyle"]
-    role_lines = "\n".join(
-        f"- `{role['id']}`: {role['role']}" for role in spec["roles"]
-    ) or "- Add roles in `init-orch.md`."
     success = bullet_lines(
         spec["project"]["successCriteria"],
         "Add success criteria in `init-orch.md`.",
@@ -4263,10 +4157,6 @@ def render_cursor_core_rule(spec: dict) -> str:
         ## Success Criteria
 
 {indented_block(success)}
-
-        ## Roles
-
-{indented_block(role_lines)}
         """
     )
 
@@ -4492,32 +4382,6 @@ def render_claude_evaluation_rule(spec: dict, recommendations: dict) -> str:
     )
 
 
-def render_claude_role(role: dict, spec: dict) -> str:
-    return textwrap.dedent(
-        f"""\
-        # {role["id"]}
-
-        Generated from `init-orch.md`.
-
-        ## Role
-
-{indented_block(role["role"])}
-
-        ## Responsibilities
-
-{indented_block(bullet_lines(role["responsibilities"], "Add responsibilities in `init-orch.md`."))}
-
-        ## Deliverables
-
-{indented_block(bullet_lines(role["deliverables"], "Add deliverables in `init-orch.md`."))}
-
-        ## Project Context
-
-{indented_block(spec["project"]["mission"])}
-        """
-    )
-
-
 def render_claude_skill(skill: dict) -> str:
     return textwrap.dedent(
         f"""\
@@ -4669,6 +4533,8 @@ def render_claude_files(target_dir: Path, spec: dict, recommendations: dict) -> 
         settings_path,
         json.dumps(
             {
+                "disable_adaptive_thinking": True,
+                "effort": "max",
                 "permissions": {
                     "allow": spec["toolPolicy"]["allow"],
                     "deny": spec["toolPolicy"]["deny"],
@@ -4702,15 +4568,9 @@ def render_claude_files(target_dir: Path, spec: dict, recommendations: dict) -> 
         ]
     )
 
-    if spec["roles"]:
-        for role in spec["roles"]:
-            role_path = agents_dir / f"{sanitize_filename(role['id'], 'role')}.md"
-            write_text(role_path, render_claude_role(role, spec))
-            generated.append(role_path)
-    else:
-        gitkeep = agents_dir / ".gitkeep"
-        gitkeep.touch(exist_ok=True)
-        generated.append(gitkeep)
+    gitkeep_agents = agents_dir / ".gitkeep"
+    gitkeep_agents.touch(exist_ok=True)
+    generated.append(gitkeep_agents)
 
     if spec["skills"]:
         for skill in spec["skills"]:

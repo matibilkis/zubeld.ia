@@ -21,7 +21,7 @@ Import roadmap, as intended today:
 
 It also follows an importance-first order:
 - start with project shape, verification, stop conditions, and permission boundaries
-- add roles and handoffs next
+- add handoffs next
 - add imports, MCPs, skills, and evaluator refinements only after the core workflow feels right
 
 Typical flow:

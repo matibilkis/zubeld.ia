@@ -177,7 +177,7 @@ It is useful when you want to:
 
 - get from zero to a decent multi-agent setup in a few minutes
 - keep Cursor and Claude aligned without duplicating effort
-- keep permissions, roles, and verification expectations explicit
+- keep permissions and verification expectations explicit
 - improve the setup over time without rebuilding it from scratch
 - carry the same orchestration intent from project to project
 
@@ -237,7 +237,7 @@ Typical override flow:
 
 1. Pick the closest preset.
 2. Run `init-orch` or `init-orch --preset ... --no-interactive`.
-3. Edit `init-orch.md` to change mission, `responseStyle`, verification, roles, imports, or anything else.
+3. Edit `init-orch.md` to change mission, `responseStyle`, verification, imports, or anything else.
 4. Re-run `init-orch --all`.
 
 ## What To Fill In First
@@ -245,7 +245,7 @@ Typical override flow:
 If the project is still fuzzy, do not try to perfect the whole spec.
 
 1. Start with project shape and guardrails: `preset`, mission, success criteria, `responseStyle`, targets, stop conditions, verification, and `toolPolicy`.
-2. Add roles, handoffs, and high-level rules.
+2. Add handoffs and high-level rules.
 3. Add imports, MCPs, and target-specific overrides once the core workflow is clear. The default `find-skills` import is an optional template you can keep, copy, or delete.
 4. Add skills after that, once repeated work patterns are real.
 5. Tune evaluation and review refinements last.

@@ -18,13 +18,6 @@ Describe what this repository does and what a successful change should optimize 
 
 Keep human and agent work aligned around practical, reviewable improvements.
 
-## Roles
-
-- `planner`: Plan non-trivial changes before implementation.
-- `implementer`: Make focused code changes and verify the result.
-- `reviewer`: Review diffs for bugs, regressions, and missing checks.
-- `evaluator`: Assess how the human-agent workflow is performing over time.
-
 ## Working Rules
 
 - Ask before destructive or irreversible actions.

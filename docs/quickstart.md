@@ -105,7 +105,7 @@ Typical override flow:
 1. Pick the closest preset.
 2. Bootstrap with `init-orch` or `init-orch --preset ... --no-interactive`.
 3. Run `init-orch --all` for the first render.
-4. Edit `init-orch.md` to change mission, `responseStyle`, verification, roles, imports, or anything else.
+4. Edit `init-orch.md` to change mission, `responseStyle`, verification, imports, or anything else.
 5. Re-run `init-orch --all`.
 
 ## 2. Suggest
@@ -158,8 +158,8 @@ If you are not fully sure what the project should look like yet, use this order:
 
 1. Project shape and guardrails: preset, mission, success criteria, `responseStyle`, targets, stop conditions, verification, and `toolPolicy`.
    This mainly affects `orch/permissions.policy.json`, Claude settings/rules, core workflow rules, and recommendation quality.
-2. Roles and collaboration shape: roles, handoffs, and repository rules.
-   This mainly affects `AGENTS.md` and Claude agent files.
+2. Collaboration shape: handoffs and repository rules.
+   This mainly affects `AGENTS.md`.
 3. Capabilities and integrations: imports, MCPs, and target overrides.
    This mainly affects imports manifests, `orch/imports.lock.json`, and Cursor MCP output when relevant. The default `find-skills` import is an optional template you can keep, copy, or delete.
 4. Reusable accelerators: skills.
@@ -261,26 +261,6 @@ Keep the rest of the file as generated and replace the spec block with something
     "deny": ["Bash(rm -rf *)", "Bash(sudo *)"],
     "requiresApproval": ["Bash(*)", "Edit(.env*)"]
   },
-  "roles": [
-    {
-      "id": "planner",
-      "role": "Plan non-trivial work before coding.",
-      "responsibilities": ["Clarify scope", "Propose the smallest safe path"],
-      "deliverables": ["Short plan"]
-    },
-    {
-      "id": "implementer",
-      "role": "Make focused code changes and run relevant checks.",
-      "responsibilities": ["Implement", "Verify"],
-      "deliverables": ["Diff", "Verification notes"]
-    },
-    {
-      "id": "evaluator",
-      "role": "Review how the human-agent loop is working.",
-      "responsibilities": ["Spot friction", "Recommend orchestration changes"],
-      "deliverables": ["Recommendations"]
-    }
-  ],
   "workflow": {
     "planningTrigger": "Plan first for non-trivial work.",
     "implementationFocus": "Prefer the smallest safe change.",
@@ -363,6 +343,8 @@ Keep the rest of the file as generated and replace the spec block with something
   },
   "claude": {
     "settingsLocalExample": {
+      "disable_adaptive_thinking": true,
+      "effort": "max",
       "permissions": {
         "allow": ["Bash(*)", "Edit(*)", "Write(*)", "Read(*)"],
         "defaultMode": "acceptEdits"
@@ -378,7 +360,6 @@ You do not need to perfect every field before rendering. A solid first pass is:
 - write the project mission and success criteria
 - set `responseStyle` if you already know the tone and brevity you want
 - define stop conditions, verification, and approvals
-- add the core roles
 - keep the default `find-skills` import only as a template, and keep the rest of imports, skills, and evaluation lighter until the workflow feels real
 
 Then run:
