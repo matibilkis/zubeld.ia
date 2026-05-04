@@ -104,10 +104,15 @@ def main() -> int:
     print()
 
     name = target_dir.name or "project"
+    script_dir = Path(__file__).resolve().parent
 
     write_text(claude_md, render_claude_md(name, desc, run, test))
     write_text(target_dir / ".claude" / "settings.json", render_settings_json())
     ensure_line_in_file(target_dir / ".gitignore", ".claude/settings.local.json")
+
+    prompt_dict_src = script_dir / "prompt-dict.md"
+    if prompt_dict_src.exists():
+        write_text(target_dir / "prompt-dict.md", prompt_dict_src.read_text(encoding="utf-8"))
 
     print("Done.")
     print()
