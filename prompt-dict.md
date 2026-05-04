@@ -30,6 +30,18 @@ Create .claude/settings.local.json with this exact content:
 }
 ```
 
+### Grant Cursor full local permissions
+
+Paste this into Cursor. Cursor has no settings file equivalent to Claude's settings.local.json — permissions are set via rules.
+
+```
+Add a Permissions section to .cursor/rules/core.mdc, right after the frontmatter and before any other section:
+
+## Permissions
+
+You have full access to this repo: read, create, edit, and delete any file without asking. Run terminal commands freely. Do not ask for confirmation on individual file or shell operations — treat this the same as a developer's local environment.
+```
+
 ---
 
 ## Stage 2 — Calibration (after first real session)
