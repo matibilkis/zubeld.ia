@@ -87,3 +87,27 @@ Optional. Only needed if connecting external tools via MCP.
   }
 }
 ```
+
+---
+
+## Resources
+
+### Rules collections (copy-paste starting points)
+
+| Repo | Stars | What to grab |
+|------|-------|--------------|
+| [sanjeed5/awesome-cursor-rules-mdc](https://github.com/sanjeed5/awesome-cursor-rules-mdc) | 3.5k | Modern `.mdc` format, organized by stack. Grab the rule for your framework and drop it in `.cursor/rules/`. |
+| [PatrickJS/awesome-cursorrules](https://github.com/PatrickJS/awesome-cursorrules) | 39k | Larger collection, but uses the old `.cursorrules` single-file format. Convert by splitting into `.mdc` files with `globs:` frontmatter. |
+
+Workflow: find your stack in one of those repos → copy the content → paste into a `.mdc` file with the right frontmatter → trim anything that doesn't apply to your project.
+
+### MCP servers (extend what Cursor can do)
+
+Cursor supports MCP natively. Same servers work as in Claude Code.
+
+| Repo | Stars | What to grab |
+|------|-------|--------------|
+| [modelcontextprotocol/servers](https://github.com/modelcontextprotocol/servers) | 85k | Official reference implementations: `filesystem`, `fetch`, `git`, `memory`, `sequential-thinking` |
+| [punkpeye/awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers) | 86k | Community curated list, organized by category |
+
+Add chosen servers to `.cursor/mcp.json`. Cursor picks them up on restart.

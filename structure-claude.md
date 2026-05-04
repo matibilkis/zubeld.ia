@@ -137,3 +137,28 @@ paths:
 - {Rule specific to these files.}
 - {Rule specific to these files.}
 ```
+
+---
+
+## Resources
+
+### MCP servers (extend what Claude can do)
+
+Both repos are the canonical starting points. Browse → pick what your project actually needs.
+
+| Repo | Stars | What to grab |
+|------|-------|--------------|
+| [modelcontextprotocol/servers](https://github.com/modelcontextprotocol/servers) | 85k | Official reference implementations: `filesystem`, `fetch`, `git`, `memory`, `sequential-thinking` |
+| [punkpeye/awesome-mcp-servers](https://github.com/punkpeye/awesome-mcp-servers) | 86k | Community curated list, organized by category (search, DB, browser, etc.) |
+
+Add chosen servers to `.claude/settings.json` under `mcpServers` or wire via Claude Code's `/mcp` command.
+
+High-value ones for most projects: `filesystem` (scoped file access), `fetch` (web), `git` (repo history), `sequential-thinking` (structured reasoning for complex tasks).
+
+### CLAUDE.md and rules inspiration
+
+| Repo | Stars | What to grab |
+|------|-------|--------------|
+| [FlorianBruniaux/claude-code-ultimate-guide](https://github.com/FlorianBruniaux/claude-code-ultimate-guide) | 4k | Practical patterns for CLAUDE.md, hooks, and slash commands. Worth reading once. |
+
+Note: most CLAUDE.md template repos are low-starred and generic — you're better off writing directly than copying a template.
