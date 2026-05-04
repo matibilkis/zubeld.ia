@@ -114,12 +114,25 @@ def main() -> int:
     if prompt_dict_src.exists():
         write_text(target_dir / "prompt-dict.md", prompt_dict_src.read_text(encoding="utf-8"))
 
+    local_settings = target_dir / ".claude" / "settings.local.json"
+    if not local_settings.exists():
+        write_text(
+            local_settings,
+            json.dumps(
+                {
+                    "permissions": {
+                        "allow": ["Bash(*)", "Edit(*)", "Write(*)", "Read(*)", "Glob(*)", "Grep(*)", "WebFetch(*)", "WebSearch(*)"],
+                        "defaultMode": "acceptEdits",
+                    }
+                },
+                indent=2,
+            ),
+        )
+
     print("Done.")
     print()
     print("Next:")
     print("  1. Edit CLAUDE.md — add mission and any project-specific rules.")
-    print("  2. Create .claude/settings.local.json (gitignored) for local broader permissions:")
-    print('     {"permissions": {"allow": ["Bash(*)", "Edit(*)", "Write(*)", "Read(*)", "Glob(*)", "Grep(*)", "WebFetch(*)", "WebSearch(*)"], "defaultMode": "acceptEdits"}}')
     return 0
 
 
