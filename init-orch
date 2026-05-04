@@ -86,6 +86,7 @@ def main() -> int:
     target_dir = Path.cwd()
     claude_md = target_dir / "CLAUDE.md"
 
+    write_claude_md = True
     if claude_md.exists():
         print(f"CLAUDE.md already exists in {target_dir}.")
         try:
@@ -93,20 +94,18 @@ def main() -> int:
         except (EOFError, KeyboardInterrupt):
             print()
             answer = ""
-        if answer != "y":
-            print("Cancelled.")
-            return 0
-
-    print()
-    desc = prompt("What does this project do? (one line, include stack)")
-    run  = prompt("Run command  (blank to skip)")
-    test = prompt("Test command (blank to skip)")
-    print()
+        write_claude_md = answer == "y"
 
     name = target_dir.name or "project"
     script_dir = Path(__file__).resolve().parent
 
-    write_text(claude_md, render_claude_md(name, desc, run, test))
+    if write_claude_md:
+        print()
+        desc = prompt("What does this project do? (one line, include stack)")
+        run  = prompt("Run command  (blank to skip)")
+        test = prompt("Test command (blank to skip)")
+        print()
+        write_text(claude_md, render_claude_md(name, desc, run, test))
     write_text(target_dir / ".claude" / "settings.json", render_settings_json())
     ensure_line_in_file(target_dir / ".gitignore", ".claude/settings.local.json")
 
