@@ -250,8 +250,6 @@ DEFAULT_TOOL_POLICY = {
 }
 
 DEFAULT_CLAUDE_LOCAL = {
-    "disable_adaptive_thinking": True,
-    "effort": "max",
     "permissions": {
         "allow": [
             "Bash(*)",
@@ -869,6 +867,8 @@ def build_render_ownership(target_dir: Path, spec: dict, selected_targets: list[
                 managed_files.append(skills_dir / f"{sanitize_filename(skill['id'], 'skill')}.md")
         else:
             managed_files.append(skills_dir / ".gitkeep")
+        for rule in spec.get("claudeRules", []):
+            managed_files.append(rules_dir / f"{sanitize_filename(rule['id'], 'rule')}.md")
         side_effects.append(
             {
                 "path": target_dir / ".gitignore",
@@ -2995,6 +2995,17 @@ def normalize_skill(index: int, raw_skill: object, source: str = "local") -> dic
     }
 
 
+def normalize_claude_rule_entry(index: int, raw: object) -> dict:
+    if not isinstance(raw, dict):
+        raise ValueError(f"`claudeRules[{index}]` must be a JSON object.")
+    rule_id = normalize_string(raw.get("id"), "")
+    if not rule_id:
+        raise ValueError(f"`claudeRules[{index}]` must include `id`.")
+    globs = require_string_list(raw.get("globs", []), f"claudeRules[{index}].globs")
+    rules = require_string_list(raw.get("rules", []), f"claudeRules[{index}].rules")
+    return {"id": rule_id, "globs": globs, "rules": rules}
+
+
 def normalize_import(index: int, raw_import: object, default_targets: list[str]) -> dict:
     if not isinstance(raw_import, dict):
         raise ValueError(f"`imports[{index}]` must be a JSON object.")
@@ -3159,6 +3170,14 @@ def normalize_spec(raw_spec: object) -> dict:
         for index, skill in enumerate(skills_raw, start=1)
     ]
 
+    claude_rules_raw = spec.get("claudeRules", [])
+    if not isinstance(claude_rules_raw, list):
+        raise ValueError("`claudeRules` must be a JSON array.")
+    claude_rules = [
+        normalize_claude_rule_entry(index, item)
+        for index, item in enumerate(claude_rules_raw, start=1)
+    ]
+
     tool_policy = require_dict(spec.get("toolPolicy", DEFAULT_TOOL_POLICY), "toolPolicy")
     tool_policy_normalized = {
         "allow": require_string_list(tool_policy.get("allow", []), "toolPolicy.allow"),
@@ -3258,6 +3277,7 @@ def normalize_spec(raw_spec: object) -> dict:
         },
         "targets": targets,
         "rules": rules,
+        "claudeRules": claude_rules,
         "workflow": workflow_normalized,
         "handoffs": handoffs,
         "responseStyle": response_style_normalized,
@@ -3325,9 +3345,9 @@ def base_blueprint_spec(repo_name: str) -> dict:
             ],
         },
         "rules": [
-            "Ask before destructive or irreversible actions.",
-            "Prefer focused verification after changes.",
-            "Do not edit secrets or production credentials.",
+            "Confirm with the user before destructive or irreversible actions.",
+            "Run focused verification after every change.",
+            "Leave secrets and production credentials untouched.",
         ],
         "handoffs": [
             {
@@ -3425,7 +3445,7 @@ def workflow_preset_overrides(workflow: str) -> dict:
             "responseStyle": response_style_profile("research"),
             "rules": [
                 "Separate findings, hypotheses, and next steps clearly.",
-                "Ask before broad implementation or irreversible changes.",
+                "Confirm with the user before broad implementation or irreversible changes.",
                 "Prefer traceable sources and explicit assumptions.",
             ],
             "workflow": {
@@ -3532,7 +3552,7 @@ def workflow_preset_overrides(workflow: str) -> dict:
             "rules": [
                 "Prefer speed, but keep changes reviewable.",
                 "Document shortcuts and unresolved risks explicitly.",
-                "Ask before touching secrets or production-like systems.",
+                "Confirm with the user before touching secrets or production-like systems.",
             ],
             "workflow": {
                 "implementationFocus": "Prefer the fastest small experiment that can prove or disprove the idea.",
@@ -3704,7 +3724,7 @@ def domain_preset_overrides(domain: str) -> dict:
             },
             "responseStyle": response_style_profile("ops"),
             "rules": [
-                "Never apply destructive infra changes without human approval.",
+                "Require human approval before applying destructive infra changes.",
                 "Prefer read, diff, or plan actions before write or apply actions.",
                 "Document blast radius and rollback considerations.",
             ],
@@ -3802,7 +3822,7 @@ def domain_preset_overrides(domain: str) -> dict:
             "rules": [
                 "Track external assets and generated content sources explicitly.",
                 "Keep review steps for publication quality and rights clear.",
-                "Ask before broad destructive changes or tool access.",
+                "Confirm with the user before broad destructive changes or tool access.",
             ],
             "verification": [
                 {
@@ -4286,13 +4306,20 @@ def render_cursor_skill(skill: dict) -> str:
     )
 
 
+def examples_xml_block(examples: list[str], fallback: str) -> str:
+    if not examples:
+        return f"<examples>\n- {fallback}\n</examples>"
+    items = "\n".join(f"- {ex}" for ex in examples)
+    return f"<examples>\n{items}\n</examples>"
+
+
 def render_claude_rule(spec: dict) -> str:
     response_style = spec["responseStyle"]
     return textwrap.dedent(
         f"""\
         # Claude Orchestration Guide
 
-        Generated from `init-orch.md`.
+        Source of truth: `init-orch.md`. Re-run `init-orch --all` after editing it.
 
         > Security warning: {SECURITY_WARNING}
 
@@ -4314,7 +4341,7 @@ def render_claude_rule(spec: dict) -> str:
 
         ### Example Replies
 
-{indented_block(bullet_lines(response_style["examples"], "Add responseStyle.examples in `init-orch.md`."))}
+{indented_block(examples_xml_block(response_style["examples"], "Add responseStyle.examples in `init-orch.md`."))}
 
         ## Working Rules
 
@@ -4510,6 +4537,16 @@ def render_cursor_files(target_dir: Path, spec: dict, recommendations: dict) -> 
     return generated
 
 
+def render_claude_path_rule(rule: dict) -> str:
+    if rule["globs"]:
+        globs_lines = "\n".join(f'  - "{g}"' for g in rule["globs"])
+        frontmatter = f"---\npaths:\n{globs_lines}\n---\n\n"
+    else:
+        frontmatter = ""
+    rules_str = bullet_lines(rule["rules"], "Add rules in `init-orch.md` under `claudeRules`.")
+    return f"{frontmatter}# {rule['id']}\n\nSource: `init-orch.md` (`claudeRules`).\n\n{rules_str}\n"
+
+
 def render_claude_files(target_dir: Path, spec: dict, recommendations: dict) -> list[Path]:
     generated = []
     claude_dir = target_dir / ".claude"
@@ -4533,8 +4570,6 @@ def render_claude_files(target_dir: Path, spec: dict, recommendations: dict) -> 
         settings_path,
         json.dumps(
             {
-                "disable_adaptive_thinking": True,
-                "effort": "max",
                 "permissions": {
                     "allow": spec["toolPolicy"]["allow"],
                     "deny": spec["toolPolicy"]["deny"],
@@ -4581,6 +4616,11 @@ def render_claude_files(target_dir: Path, spec: dict, recommendations: dict) -> 
         gitkeep = skills_dir / ".gitkeep"
         gitkeep.touch(exist_ok=True)
         generated.append(gitkeep)
+
+    for rule in spec.get("claudeRules", []):
+        rule_path = rules_dir / f"{sanitize_filename(rule['id'], 'rule')}.md"
+        write_text(rule_path, render_claude_path_rule(rule))
+        generated.append(rule_path)
 
     ensure_line_in_file(target_dir / ".gitignore", ".claude/settings.local.json")
     return generated

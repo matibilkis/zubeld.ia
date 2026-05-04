@@ -58,11 +58,13 @@ Keep this light on the first render. The default `find-skills` entry is an optio
 - `imports`
 - MCP declarations
 - `targetOverrides`
+- `claudeRules` — path-scoped Claude rules loaded only when Claude touches matching files. Example: `{"id": "python-style", "globs": ["**/*.py"], "rules": ["Use type hints on all signatures."]}`. Generated as `.claude/rules/{id}.md` with YAML frontmatter.
 
 This mainly influences:
 - `orch/imports.lock.json`
 - Cursor and Claude import manifests
 - Cursor MCP configuration when relevant
+- `.claude/rules/*.md` path-scoped rule files
 
 ### Priority 4: Reusable accelerators
 
@@ -210,12 +212,13 @@ This mainly influences:
     }
   ],
   "rules": [
-    "Ask before destructive or irreversible actions.",
-    "Prefer focused verification after changes.",
-    "Do not edit secrets or production credentials.",
+    "Confirm with the user before destructive or irreversible actions.",
+    "Run focused verification after every change.",
+    "Leave secrets and production credentials untouched.",
     "Prefer maintainable solutions over clever shortcuts.",
-    "Keep diffs reviewable and verification relevant to the change."
+    "Keep diffs small and verification scoped to the actual change."
   ],
+  "claudeRules": [],
   "imports": [
     {
       "id": "find-skills",

@@ -266,23 +266,23 @@ class SuggestRefactorTests(unittest.TestCase):
         self.assertIn('"id": "find-skills"', blueprint)
         self.assertIn("Optional template import for external skills.", blueprint)
 
-    def test_default_claude_local_example_uses_max_effort(self) -> None:
+    def test_default_claude_local_example_has_permissions(self) -> None:
         spec = init_orch.build_preset_spec("demo", "engineering-generic")
 
-        self.assertTrue(spec["claude"]["settingsLocalExample"]["disable_adaptive_thinking"])
-        self.assertEqual(spec["claude"]["settingsLocalExample"]["effort"], "max")
+        self.assertIn("permissions", spec["claude"]["settingsLocalExample"])
+        self.assertNotIn("disable_adaptive_thinking", spec["claude"]["settingsLocalExample"])
 
-    def test_rendered_claude_settings_use_max_effort_defaults(self) -> None:
+    def test_rendered_claude_settings_have_permissions_only(self) -> None:
         repo_dir = self.make_repo("claude-defaults-demo")
         init_orch.render_targets(repo_dir, ["claude"], repo_dir / "init-orch.md")
 
         settings = json.loads((repo_dir / ".claude" / "settings.json").read_text(encoding="utf-8"))
         local_settings = json.loads((repo_dir / ".claude" / "settings.local.json.example").read_text(encoding="utf-8"))
 
-        self.assertTrue(settings["disable_adaptive_thinking"])
-        self.assertEqual(settings["effort"], "max")
-        self.assertTrue(local_settings["disable_adaptive_thinking"])
-        self.assertEqual(local_settings["effort"], "max")
+        self.assertIn("permissions", settings)
+        self.assertNotIn("disable_adaptive_thinking", settings)
+        self.assertIn("permissions", local_settings)
+        self.assertNotIn("disable_adaptive_thinking", local_settings)
 
     def test_render_targets_dry_run_does_not_write_files(self) -> None:
         repo_dir = self.make_repo("dry-run-demo")
