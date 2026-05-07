@@ -27,12 +27,12 @@ After that, edit `CLAUDE.md` directly. It is not regenerated.
 
 ## What to do next
 
-`prompt-dict.md` has copy-paste prompts for the steps that follow. The two you'll want immediately:
+Do not run `/init` in Claude Code after init-orch — it would overwrite `CLAUDE.md` and lose the rules and response style structure. Instead:
 
-- **Generate Cursor rules** — paste the "Generate Cursor core.mdc" prompt into Claude; it reads `CLAUDE.md` and writes `.cursor/rules/core.mdc`.
-- **Broader local permissions** — paste the "Create .claude/settings.local.json" prompt; Claude writes the file with full Bash/Edit/Write access and `acceptEdits` mode.
+1. Paste the **"Generate Cursor core.mdc"** prompt from `prompt-dict.md` into Claude or Cursor to generate `.cursor/rules/core.mdc`.
+2. Paste the **"Audit CLAUDE.md against the actual repo"** prompt — Claude reads your codebase and proposes improvements to `CLAUDE.md` without losing its structure. This replaces what `/init` would have done.
 
-After your first real session, use the calibration prompts to audit and tighten `CLAUDE.md`. As the project grows, use the extension prompts to add path-scoped rules and MCP servers.
+After your first real session, use the calibration prompts to tighten `CLAUDE.md`. As the project grows, use the extension prompts to add path-scoped rules and MCP servers.
 
 ## Local broader permissions
 
